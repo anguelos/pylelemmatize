@@ -1,0 +1,1 @@
+from .abstract_alphabet import AlphabetBMP, main_alphabet_extract_corpus
