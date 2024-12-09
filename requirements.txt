@@ -1,0 +1,8 @@
+numpy
+unidecode
+fargv
+matplotlib
+scipy
+tqdm
+networkx
+pytest
