@@ -12,6 +12,7 @@ from typing import Dict, List
 from .map_iso import iso_only_alphabet
 from .map_mes import mes_only_alphabet
 from .map_ascii import ascii_only_alphabet
+from .map_mufi import mufi_only_alphabet
 
 
 from .abstract_alphabet import AlphabetBMP, fast_cer
@@ -22,6 +23,7 @@ all_encoding_alphabet_strings = {}
 all_encoding_alphabet_strings.update(iso_only_alphabet)
 all_encoding_alphabet_strings.update(mes_only_alphabet)
 all_encoding_alphabet_strings.update(ascii_only_alphabet)
+all_encoding_alphabet_strings.update(mufi_only_alphabet)
 
 
 def main_map_test_corpus_on_alphabets():

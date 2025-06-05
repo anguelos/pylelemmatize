@@ -261,10 +261,6 @@ def main_alphabet_evaluate_merges():
         print(f"Computed {total_size} in {time.time() -t :.2f}", file=sys.stderr)
 
 
-
-
-
-
 class Lematizer(AlphabetBMP):
     def __init__(self, src_alphabet: str, mapping_dict: Dict[str, str], unknown_chr: str = '�'):
         super().__init__(alphabet_str=src_alphabet, unknown_chr=unknown_chr)
