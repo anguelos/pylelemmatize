@@ -23,7 +23,8 @@ To install PyLemmatize from the source code, follow these steps:
 ```sh
 git clone https://github.com/yourusername/pylelemmatize.git
 cd pylelemmatize
-python3 setup.py develop
+pip install -e ./  
+# If you dont want a development install, do pip install ./
 ```
 
 ## Usage
@@ -35,6 +36,14 @@ python3 setup.py develop
 ```sh
 ll_evaluate_merges -h # get help string with the cli interface
 ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*'
+```
+
+Attention the merge CER is not symetric at all!
+```
+# The following gives a CER of 0.0591
+ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("I", "J"), ("i", "j")]'
+# While the following gives a CER of 0.0007
+ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("J", "I"), ("j", "i")]'
 ```
 
 #### Extract corpus alphabet
