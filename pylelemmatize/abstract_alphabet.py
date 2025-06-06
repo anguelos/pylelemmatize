@@ -39,7 +39,7 @@ def fast_cer(pred: str, true: str) -> float:
     return np.mean(np_pred != np_true)
 
 
-class Alphabet(ABC):
+class AbstractAlphabet(ABC):
     @property
     @abstractmethod
     def src_alphabet_str(self) -> str:
@@ -64,14 +64,14 @@ class Alphabet(ABC):
         return "\n".join(lines)
 
 
-class AlphabetBMP(Alphabet):
+class Alphabet(AbstractAlphabet):
     @staticmethod
     def fast_alphabet_extraction(text: str) -> str:
         np_text = fast_str_to_numpy(text)
         uniq = np.unique(np_text)
         return fast_numpy_to_str(uniq)
 
-    def __init__(self, sample: Union[str, None] = None, alphabet_str: Union[str, None] = None, unknown_chr: str = '�'):
+    def __init__(self, sample: Union[str, None] = None, alphabet_str: Union[str, None] = None, unknown_chr: str = '�', vectorized_mapper_sz: int = 256**2):
         assert bool(sample is None) != bool(alphabet_str is None), "Either sample or alphabet_str must be provided, not both"
         if sample is not None:
             self.__src_alphabet_str = ''.join(sorted(set(sample)-set(unknown_chr)))
@@ -82,6 +82,7 @@ class AlphabetBMP(Alphabet):
                 alphabet_str = alphabet_str.replace(unknown_chr, "")
             self.__src_alphabet_str = alphabet_str
         self.__unknown_chr = unknown_chr
+        self.__vectorized_mapper_sz = vectorized_mapper_sz
         self.__chr2chr, self.__npint2chr, self.__int2chr, self.__chr2int, self.__npint2int = self.__create_mappers()
 
     def __create_mappers(self) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray]:
@@ -91,8 +92,8 @@ class AlphabetBMP(Alphabet):
         np_int2chr = np.array(list(full_str))
         int2chr = {i: a for i, a in enumerate(full_str)}
         chr2int = {a: i for i, a in int2chr.items()}
-
-        np_int2int = np.zeros(256**2, dtype=np.uint16)
+        # staying in the unicode bmp is really much better for performance and code clarity
+        np_int2int = np.zeros(self.__vectorized_mapper_sz, dtype=np.uint32)
         for c in full_str:
             np_int2int[ord(c)] = ord(c)
         return chr2chr, np_int2chr, int2chr, chr2int, np_int2int
@@ -114,8 +115,14 @@ class AlphabetBMP(Alphabet):
 
     def __repr__(self):
         if self.__unknown_chr != '�':
-            return f"Alphabet(alphabetstr={repr(self.__src_alphabet_str)}, unknown_chr={repr(self.__unknown_chr)})"
-        return f"Alphabet(alphabetstr={repr(self.__src_alphabet_str)})"
+            unknown_chr_repr = f", unknown_chr={repr(self.__unknown_chr)}"
+        else:
+            unknown_chr_repr = ""
+        if self.__vectorized_mapper_sz != 256**2:
+            vectorized_mapper_sz_repr = f", vectorized_mapper_sz={self.__vectorized_mapper_sz}"
+        else:
+            vectorized_mapper_sz_repr = ""
+        return f"Alphabet(alphabetstr={repr(self.__src_alphabet_str)}{unknown_chr_repr}{vectorized_mapper_sz_repr})"
 
     def __call__(self, text: str) -> str:
         #    return ''.join([self.__chr2chr[c] for c in text])
@@ -144,6 +151,24 @@ class AlphabetBMP(Alphabet):
         np_text = fast_str_to_numpy(text)
         mapped_np_text = self.__npint2int[np_text]
         return np.mean(np_text != mapped_np_text)
+
+
+class AlphabetBMP(Alphabet):
+    def __init__(self, sample: Union[str, None] = None, alphabet_str: Union[str, None] = None, unknown_chr: str = '�'):
+        super().__init__(sample=sample, alphabet_str=alphabet_str, unknown_chr=unknown_chr, vectorized_mapper_sz=256**2)
+
+    def __create_mappers(self) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray]:
+        chr2chr = defaultdict(lambda: self.__unknown_chr)
+        chr2chr.update({a: a for a in self.__src_alphabet_str})
+        full_str = self.__unknown_chr + self.__src_alphabet_str
+        np_int2chr = np.array(list(full_str))
+        int2chr = {i: a for i, a in enumerate(full_str)}
+        chr2int = {a: i for i, a in int2chr.items()}
+        # staying in the unicode bmp is really much better for performance and code clarity
+        np_int2int = np.zeros(self.__vectorized_mapper_sz, dtype=np.uint16)
+        for c in full_str:
+            np_int2int[ord(c)] = ord(c)
+        return chr2chr, np_int2chr, int2chr, chr2int, np_int2int
 
 
 def main_alphabet_extract_corpus_alphabet():

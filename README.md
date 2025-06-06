@@ -34,19 +34,19 @@ python3 setup.py develop
 
 ```sh
 ll_evaluate_merges -h # get help string with the cli interface
-ll_evaluate_merges -corpus_glob './tmp/fsdb/*/*/*/*.xml'
+ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*'
 ```
 
 #### Extract corpus alphabet
 ```sh
 ll_extract_corpus_alphabet -h # get help string with the cli interface
-ll_extract_corpus_alphabet -corpus_glob './tmp/fsdb/*/*/*/*.xml'
+ll_extract_corpus_alphabet -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*'
 ```
 
 #### Test corpus on alphabets
 ```sh
 ll_test_corpus_on_alphabets -h # get help string with the cli interface
-ll_test_corpus_on_alphabets -corpus_glob './tmp/fsdb/*/*/*/*.xml'
+ll_test_corpus_on_alphabets -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*' -alphabets 'bmp_mufi,ascii,mes1,iso8859_2' -verbose
 ```
 
 ## Contributing

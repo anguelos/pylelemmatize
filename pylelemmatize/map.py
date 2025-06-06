@@ -1,29 +1,24 @@
 from typing import Dict, List
-#import .map_iso as map_iso
-# from .map_iso import get_charactermap_names as get_charactermap_names_iso
-# from .map_iso import get_encoding_dicts as get_encoding_dicts_iso
-# from .map_mes import get_charactermap_names as get_charactermap_names_mes
-# from .map_mes import get_encoding_dicts as get_encoding_dicts_mes
-# from .map_ascii import get_charactermap_names as get_charactermap_names_ascii
-# from .map_ascii import get_encoding_dicts as get_encoding_dicts_ascii
-
-#import .map_mes as map_mes
-#import .map_ascii as map_ascii
 from .map_iso import iso_only_alphabet
 from .map_mes import mes_only_alphabet
 from .map_ascii import ascii_only_alphabet
-from .map_mufi import mufi_only_alphabet
+from .map_mufi import all_bmp_mufi, all_nonbmp_mufi
 
 
-from .abstract_alphabet import AlphabetBMP, fast_cer
+from .abstract_alphabet import Alphabet, AlphabetBMP, fast_cer
 
 family_to_charmapnames = {}
 
-all_encoding_alphabet_strings = {}
-all_encoding_alphabet_strings.update(iso_only_alphabet)
-all_encoding_alphabet_strings.update(mes_only_alphabet)
-all_encoding_alphabet_strings.update(ascii_only_alphabet)
-all_encoding_alphabet_strings.update(mufi_only_alphabet)
+
+allbmp_encoding_alphabet_strings = {}
+allbmp_encoding_alphabet_strings.update(iso_only_alphabet)
+allbmp_encoding_alphabet_strings.update(mes_only_alphabet)
+allbmp_encoding_alphabet_strings.update(ascii_only_alphabet)
+allbmp_encoding_alphabet_strings.update(all_bmp_mufi)
+
+#nonbmp means the union of bmp and non-bmp characters.
+allnonbmp_encoding_alphabet_strings = {k:v for k, v in allbmp_encoding_alphabet_strings.items()}
+allnonbmp_encoding_alphabet_strings.update(all_nonbmp_mufi)
 
 
 def main_map_test_corpus_on_alphabets():
@@ -56,7 +51,7 @@ def main_map_test_corpus_on_alphabets():
 
     t = time.time()
     p = {
-        "alphabets": ["ascii", f"A comma separated listof encodings must be a subset of {repr(all_encoding_alphabet_strings.keys())}. Or 'all'"],
+        "alphabets": ["ascii", f"A comma separated listof encodings must be a subset of {repr(allbmp_encoding_alphabet_strings.keys())}. Or 'all'"],
         "corpus_glob": "",
         "corpus_files": set([]),
         "verbose": False,
@@ -69,7 +64,7 @@ def main_map_test_corpus_on_alphabets():
     args, _ = fargv.fargv(p)
 
     if args.alphabets == "all":
-        args.alphabets = list(all_encoding_alphabet_strings.keys())
+        args.alphabets = list(allbmp_encoding_alphabet_strings.keys())
     else:
         args.alphabets = [a.strip() for a in args.alphabets.split(',')]
 
@@ -100,11 +95,14 @@ def main_map_test_corpus_on_alphabets():
     alphabet_to_missing = {}
     alphabet_to_unfound = {}
     for alphabet_name in alphabet_names:
-        if alphabet_name not in all_encoding_alphabet_strings:
-            raise ValueError(f"Alphabet {alphabet_name} not in {all_encoding_alphabet_strings.keys()}")
+        if alphabet_name not in allbmp_encoding_alphabet_strings:
+            raise ValueError(f"Alphabet {alphabet_name} not in {allbmp_encoding_alphabet_strings.keys()}")
 
-        alphabet_str = all_encoding_alphabet_strings[alphabet_name]
-        alphabet = AlphabetBMP(alphabet_str=alphabet_str)
+        alphabet_str = allbmp_encoding_alphabet_strings[alphabet_name]
+        if max(alphabet_str) > '\uffff':
+            alphabet = Alphabet(alphabet_str=alphabet_str, vectorized_mapper_sz=max(256**2, 1 + ord(max(alphabet_str))))  #  This is a hack to ensure that the vectorized mapper is large enough for all characters in MUFI
+        else:
+            alphabet = AlphabetBMP(alphabet_str=alphabet_str)  #  This is a hack to ensure that the vectorized mapper is large enough for all characters in MUFI
 
         mapped_corpus_str = alphabet(found_corpus_str)
 
@@ -117,11 +115,12 @@ def main_map_test_corpus_on_alphabets():
             alphabet_to_cer[alphabet_name] = 0
             alphabet_to_missing[alphabet_name] = ""
             alphabet_to_unfound[alphabet_name] = alphabet_str
-    if not args.hide_plot or args.save_plot_path != "":
-        found_corpus_alphabet_str = ''.join(sorted(set(found_corpus_str)))
-        plot_covverage(found_corpus_alphabet_str, all_encoding_alphabet_strings, alphabet_to_cer, alphabet_to_missing, alphabet_to_unfound, args.save_plot_path, not args.hide_plot)
 
     if args.verbose:
         for k, v in alphabet_to_cer.items():
             print(f"{k}: CER {100*v:.2f}% Missing: {len(alphabet_to_missing[k])}, Redundant: {len(alphabet_to_unfound[k])}  {repr(alphabet_to_missing[k])}", file=sys.stderr)
         print(f"Computed all for {len(found_corpus_str)} characters in {time.time() -t :.2f}", file=sys.stderr)
+
+    if not args.hide_plot or args.save_plot_path != "":
+        found_corpus_alphabet_str = ''.join(sorted(set(found_corpus_str)))
+        plot_covverage(found_corpus_alphabet_str, allbmp_encoding_alphabet_strings, alphabet_to_cer, alphabet_to_missing, alphabet_to_unfound, args.save_plot_path, not args.hide_plot)
