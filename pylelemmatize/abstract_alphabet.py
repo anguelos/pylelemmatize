@@ -40,6 +40,11 @@ def fast_cer(pred: str, true: str) -> float:
 
 
 class AbstractAlphabet(ABC):
+    @abstractmethod
+    def __call__(self, text: str) -> str:
+        """Convert text to the alphabet representation."""
+        pass
+
     @property
     @abstractmethod
     def src_alphabet_str(self) -> str:
@@ -83,9 +88,9 @@ class Alphabet(AbstractAlphabet):
             self.__src_alphabet_str = alphabet_str
         self.__unknown_chr = unknown_chr
         self.__vectorized_mapper_sz = vectorized_mapper_sz
-        self.__chr2chr, self.__npint2chr, self.__int2chr, self.__chr2int, self.__npint2int = self.__create_mappers()
+        self.__chr2chr, self.__npint2chr, self.__int2chr, self.__chr2int, self.__npint2int, self.__npint_sparce2dense, self.__npint_dense2sparce = self.__create_mappers()
 
-    def __create_mappers(self) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray]:
+    def __create_mappers(self) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray, np.ndarray, np.ndarray]:
         chr2chr = defaultdict(lambda: self.__unknown_chr)
         chr2chr.update({a: a for a in self.__src_alphabet_str})
         full_str = self.__unknown_chr + self.__src_alphabet_str
@@ -94,9 +99,13 @@ class Alphabet(AbstractAlphabet):
         chr2int = {a: i for i, a in int2chr.items()}
         # staying in the unicode bmp is really much better for performance and code clarity
         np_int2int = np.zeros(self.__vectorized_mapper_sz, dtype=np.uint32)
-        for c in full_str:
+        np_dense_encoder_int2int = np.zeros(self.__vectorized_mapper_sz, dtype=np.uint32)
+        np_dense_decoder_int2int = np.zeros(len(full_str), dtype=np.uint32)
+        for n, c in enumerate(full_str):
             np_int2int[ord(c)] = ord(c)
-        return chr2chr, np_int2chr, int2chr, chr2int, np_int2int
+            np_dense_encoder_int2int[ord(c)] = n
+            np_dense_decoder_int2int[n] = ord(c)
+        return chr2chr, np_int2chr, int2chr, chr2int, np_int2int, np_dense_encoder_int2int, np_dense_decoder_int2int
 
     @property
     def src_alphabet_str(self):
@@ -151,13 +160,52 @@ class Alphabet(AbstractAlphabet):
         np_text = fast_str_to_numpy(text)
         mapped_np_text = self.__npint2int[np_text]
         return np.mean(np_text != mapped_np_text)
+    
+    def encode_str_to_onehot(self, text: str, dtype=np.float32) -> np.ndarray:
+        """
+        Encode the input string to a one-hot encoded numpy array.
+        Each character in the string is represented as a one-hot vector.
+        """
+        np_text = fast_str_to_numpy(text)
+        dense_indices = self.__npint_sparce2dense[np_text]
+        one_hot = np.zeros((len(np_text), 1 + len(self.__src_alphabet_str)), dtype=np.uint8)
+        one_hot[np.arange(len(np_text)), dense_indices] = 1
+        return one_hot.astype(dtype)
+    
+    def encode_str_to_labels(self, text: str, dtype=np.int64) -> np.ndarray:
+        """
+        Encode the input string to a numpy array of labels.
+        Each character in the string is represented by its index in the alphabet.
+        """
+        np_text = fast_str_to_numpy(text)
+        dense_indices = self.__npint_sparce2dense[np_text]
+        return dense_indices.astype(dtype)
+    
+    def decode_onehot_to_str(self, one_hot: np.ndarray) -> str:
+        """
+        Decode a one-hot encoded numpy array back to a string.
+        Each row in the one-hot array corresponds to a character in the string.
+        """
+        if one_hot.ndim != 2 or one_hot.shape[1] != 1 + len(self.__src_alphabet_str):
+            raise ValueError("Invalid shape for one-hot encoded array")
+        dense_indices = np.argmax(one_hot, axis=1)
+        return fast_numpy_to_str(self.__npint_dense2sparce[dense_indices])
+    
+    def decode_labels_to_str(self, labels: np.ndarray) -> str:
+        """
+        Decode a numpy array of labels back to a string.
+        Each label corresponds to an index in the alphabet.
+        """
+        if labels.ndim != 1 or labels.dtype != np.int64:
+            raise ValueError("Invalid shape or dtype for labels array")
+        return fast_numpy_to_str(self.__npint_dense2sparce[labels])
 
 
 class AlphabetBMP(Alphabet):
     def __init__(self, sample: Union[str, None] = None, alphabet_str: Union[str, None] = None, unknown_chr: str = '�'):
         super().__init__(sample=sample, alphabet_str=alphabet_str, unknown_chr=unknown_chr, vectorized_mapper_sz=256**2)
 
-    def __create_mappers(self) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray]:
+    def __create_mappers(self) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray, np.ndarray, np.ndarray]:
         chr2chr = defaultdict(lambda: self.__unknown_chr)
         chr2chr.update({a: a for a in self.__src_alphabet_str})
         full_str = self.__unknown_chr + self.__src_alphabet_str
@@ -166,6 +214,14 @@ class AlphabetBMP(Alphabet):
         chr2int = {a: i for i, a in int2chr.items()}
         # staying in the unicode bmp is really much better for performance and code clarity
         np_int2int = np.zeros(self.__vectorized_mapper_sz, dtype=np.uint16)
+        np_dense_encoder_int2int = np.zeros(self.__vectorized_mapper_sz, dtype=np.uint16)
+        np_dense_decoder_int2int = np.zeros(len(full_str), dtype=np.uint16)
+        for n, c in enumerate(full_str):
+            np_int2int[ord(c)] = ord(c)
+            np_dense_encoder_int2int[ord(c)] = n
+            np_dense_decoder_int2int[n] = ord(c)
+        return chr2chr, np_int2chr, int2chr, chr2int, np_int2int, np_dense_encoder_int2int, np_dense_decoder_int2int
+
         for c in full_str:
             np_int2int[ord(c)] = ord(c)
         return chr2chr, np_int2chr, int2chr, chr2int, np_int2int
@@ -286,7 +342,7 @@ def main_alphabet_evaluate_merges():
         print(f"Computed {total_size} in {time.time() -t :.2f}", file=sys.stderr)
 
 
-class Lematizer(AlphabetBMP):
+class Lemmatizer(AlphabetBMP):
     def __init__(self, src_alphabet: str, mapping_dict: Dict[str, str], unknown_chr: str = '�'):
         super().__init__(alphabet_str=src_alphabet, unknown_chr=unknown_chr)
         self.__custom_mapping_dict = mapping_dict
