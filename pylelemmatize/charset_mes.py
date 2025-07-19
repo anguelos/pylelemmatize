@@ -1,6 +1,6 @@
 # source for data https://www.evertype.com/standards/iso10646/pdf/cwa13873.pdf pages 9-13
 
-from typing import Dict
+from typing import Dict, List
 
 
 mes1_ranges = {
@@ -112,6 +112,9 @@ mes3b_ranges = {
     "SPECIALS": "FFF0-FFFD"
 }
 
+all_mes_ranges = {"mes1": mes1_ranges, "mes2": mes2_ranges, "mes3a": mes3a_ranges, "mes3b": mes3b_ranges}
+
+
 def extract_ranges(rangestr: str) -> str:
     start, end = [int(v, 16) for v in rangestr.split('-')]
     return ''.join([chr(i) for i in range(start, end+1)])
@@ -121,10 +124,28 @@ def get_mes_alphabet_dict(ranges: Dict[str, str]) -> Dict[str, str]:
     return {k: extract_ranges(v) for k, v in ranges.items()}
 
 
-if __name__ == "__main__":
-    print(f"MES1: {len(''.join(get_mes_alphabet_dict(mes1_ranges).values()))}")
-    for k, v in get_mes_alphabet_dict(mes1_ranges).items():
-        print(f"{k}: {repr(v)}")
-    print(f"\n\n\nMES2: {len(''.join(get_mes_alphabet_dict(mes2_ranges).values()))}")
-    for k, v in get_mes_alphabet_dict(mes2_ranges).items():
-        print(f"{k}: {repr(v)}")
+def get_charactermap_names() -> Dict[str, List[str]]:
+    return {"mes": ["mes1", "mes2", "mes3a", "mes3b"]}
+
+
+def get_encoding_dicts() -> Dict[str, List[str]]:
+    res = {}
+    for name in get_charactermap_names()["mes"]:
+        range_strs = []
+        ranges = all_mes_ranges[name]
+        for range in ranges.values():
+            range_strs.append(extract_ranges(range))
+        alphabet = ''.join(sorted(set(range_strs)))
+        res[name] = alphabet
+    return res
+
+
+# if __name__ == "__main__":
+#     print(f"MES1: {len(''.join(get_mes_alphabet_dict(mes1_ranges).values()))}")
+#     for k, v in get_mes_alphabet_dict(mes1_ranges).items():
+#         print(f"{k}: {repr(v)}")
+#     print(f"\n\n\nMES2: {len(''.join(get_mes_alphabet_dict(mes2_ranges).values()))}")
+#     for k, v in get_mes_alphabet_dict(mes2_ranges).items():
+#         print(f"{k}: {repr(v)}")
+
+mes_only_alphabet = get_encoding_dicts()

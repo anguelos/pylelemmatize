@@ -1,5 +1,6 @@
 import codecs
 import encodings
+from typing import Dict, List
 import encodings.aliases
 from unidecode import unidecode
 
@@ -21,14 +22,6 @@ def get_characters_in_codepage(codepage):
     return ''.join(characters)
 
 
-def get_encoding_dicts():
-    # Get all encoding aliases from the encodings.aliases module
-    encoding_aliases = set(encodings.aliases.aliases.values())
-    encoding_aliases = [a for a in encoding_aliases if a.startswith('iso8')]
-    # Convert the set to a sorted list for better readability
-    sorted_encodings = sorted(encoding_aliases)
-    return {k: get_characters_in_codepage(k) for k in sorted_encodings}
-
 
 def encoding_to_ascii(alphabet, force_min_len_to_one: bool = True, force_max_len_to_one: bool = False):
     mapping = [(letter, unidecode(letter)) for letter in alphabet]
@@ -42,15 +35,29 @@ def encoding_to_ascii(alphabet, force_min_len_to_one: bool = True, force_max_len
 def simplify_string(s):
     return ''.join(sorted(set(s)))
 
-codepage_alphabets = get_encoding_dicts()
+# codepage_alphabets = get_encoding_dicts()
 
-print("codepage_alphabets = {")
-for k, v in codepage_alphabets.items():
-    print(f"{repr(k.split('_')[-1])}: {repr(v)} ,")
-print("}")
+# print("codepage_alphabets = {")
+# for k, v in codepage_alphabets.items():
+#     print(f"{repr(k.split('_')[-1])}: {repr(v)} ,")
+# print("}")
 
-#greek_to_ascii = encoding_to_ascii(codepage_alphabets['iso8859_7'], force_min_len_to_one=True, force_max_len_to_one=True)
-#for k, v in greek_to_ascii.items():
-#    print(f"{k}: {repr(v)}")
+# #greek_to_ascii = encoding_to_ascii(codepage_alphabets['iso8859_7'], force_min_len_to_one=True, force_max_len_to_one=True)
+# #for k, v in greek_to_ascii.items():
+# #    print(f"{k}: {repr(v)}")
 
+
+def get_charactermap_names() -> Dict[str, List[str]]:
+    # Get all encoding aliases from the encodings.aliases module
+    encoding_aliases = set(encodings.aliases.aliases.values())
+    encoding_aliases = [a for a in encoding_aliases if a.startswith('iso8')]
+    # Convert the set to a sorted list for better readability
+    sorted_encodings = list(sorted(encoding_aliases))
+    return {"iso-8859": sorted_encodings}
+
+
+def get_encoding_dicts() -> Dict[str, List[str]]:
+    return {k: get_characters_in_codepage(k) for k in get_charactermap_names()['iso-8859']}
+
+iso_only_alphabet = get_encoding_dicts()
 
