@@ -96,19 +96,27 @@ class Seq2SeqDs:
         return Seq2SeqDs(text_blocks, **kwargs)
     
     @staticmethod
-    def create_selfsupervised_ds(corpus: List[str], mapper: LemmatizerBMP, mapped_is_input: bool = True, **kwargs) -> 'Seq2SeqDs':
+    def create_selfsupervised_ds(corpus: List[str], mapper: LemmatizerBMP, mapped_is_input: bool = True, add_all_occuring_to_input: bool = True, **kwargs) -> 'Seq2SeqDs':
         mapped_corpus = [mapper(text) for text in corpus]
+        #mapped_corpus_str = sorted(fast_numpy_to_str(np.unique(fast_str_to_numpy(''.join(mapped_corpus)))))
+        #corpus_str = sorted(fast_numpy_to_str(np.unique(fast_str_to_numpy(''.join(corpus)))))
+        mapsrc_alphabet_str = mapper.src_alphabet_str
+        if add_all_occuring_to_input:
+            # Add all characters that occur in the corpus to the input alphabet
+            corpus_occ = fast_numpy_to_str(np.unique(fast_str_to_numpy(''.join(corpus))))  # Ensure the corpus is processed to extract characters
+            mapsrc_alphabet_str = ''.join(sorted(mapper.src_alphabet_str + corpus_occ))
         if mapped_is_input:
             text_blocks = (mapped_corpus, corpus)
-            input_mapper = LemmatizerBMP.from_alphabet_str(mapper.dst_alphabet_str)
-            output_mapper = LemmatizerBMP.from_alphabet_str(mapper.src_alphabet_str)
+            out_mapper = LemmatizerBMP.from_alphabet_mapping(mapsrc_alphabet_str, unknown_chr=mapper.unknown_chr)
+            in_mapper = LemmatizerBMP.from_alphabet_mapping(mapper.dst_alphabet_str, unknown_chr=mapper.unknown_chr)
+
         else:
             text_blocks = (corpus, mapped_corpus)
-            input_mapper = LemmatizerBMP.from_alphabet_str(mapper.src_alphabet_str)
-            output_mapper = LemmatizerBMP.from_alphabet_str(mapper.dst_alphabet_str)
-        return Seq2SeqDs(text_blocks, input_mapper=input_mapper, output_mapper=output_mapper, **kwargs)
+            out_mapper = LemmatizerBMP.from_alphabet_mapping(mapper.dst_alphabet_str, unknown_chr=mapper.unknown_chr)
+            in_mapper = LemmatizerBMP.from_alphabet_mapping(mapsrc_alphabet_str, unknown_chr=mapper.unknown_chr)
+        return Seq2SeqDs(text_blocks, input_mapper=in_mapper, output_mapper=out_mapper, **kwargs)
 
-    def __init__(self, text_blocks: Tuple[List[str], List[str]],  input_mapper: LemmatizerBMP, output_mapper: Optional[LemmatizerBMP], 
+    def __init__(self, text_blocks: Tuple[List[str], List[str]],  input_mapper: Optional[LemmatizerBMP]=None, output_mapper: Optional[LemmatizerBMP]=None, 
                  min_input_seqlen: int = 50, min_output_seqlen: int = 50, one2one_mapping: Optional[bool] = None, crop_to_seqlen: Optional[int] = None, 
                  input_is_onehot: bool = False, output_is_onehot: bool = False):
         self.src_text_blocks = []
@@ -120,12 +128,12 @@ class Seq2SeqDs:
                 self.tgt_text_blocks.append(text_blocks[1][n])
 
         if input_mapper is None:
-            self.input_mapper = AbstractLemmatizer.fast_alphabet_extraction(''.join(self.src_text_blocks))
+            self.input_mapper = LemmatizerBMP.from_alphabet_mapping(AbstractLemmatizer.fast_alphabet_extraction(''.join(self.src_text_blocks)))
         else:
             self.input_mapper = input_mapper
 
         if output_mapper is None:
-            self.output_mapper = AbstractLemmatizer.fast_alphabet_extraction(''.join(self.tgt_text_blocks))
+            self.output_mapper = LemmatizerBMP.from_alphabet_mapping(AbstractLemmatizer.fast_alphabet_extraction(''.join(self.tgt_text_blocks)))
         else:
             self.output_mapper = output_mapper
 
@@ -151,7 +159,7 @@ class Seq2SeqDs:
     def __len__(self) -> int:
         return len(self.src_text_blocks)
 
-    def __getitem__(self, n: int) -> Tuple[torch.tensor, torch.tensor]:
+    def __getitem__(self, n: int, as_string: bool = False) -> Tuple[torch.tensor, torch.tensor]:
         src_txt = self.src_text_blocks[n]
         tgt_txt = self.tgt_text_blocks[n]
         if self.crop_seqlen is not None:
@@ -172,15 +180,17 @@ class Seq2SeqDs:
         else:
             res_tgt = tgt_dense_labels
         return res_src, res_tgt
-    
+
     def shuffle(self) -> None:
         idx = list(range(len(self)))
         random.shuffle(idx)
         self.src_text_blocks = [self.src_text_blocks[i] for i in idx]
         self.tgt_text_blocks = [self.tgt_text_blocks[i] for i in idx]
 
-    def split(self, train_ratio: float = 0.8) -> Tuple['Seq2SeqDs', 'Seq2SeqDs']:
+    def split(self, train_ratio: float = 0.8, shuffle: bool = True) -> Tuple['Seq2SeqDs', 'Seq2SeqDs']:
         assert 0 < train_ratio < 1, "Ratio must be between 0 and 1"
+        if shuffle:
+            self.shuffle()
         split_idx = int(len(self) * train_ratio)
         train_ds = Seq2SeqDs((self.src_text_blocks[:split_idx], self.tgt_text_blocks[:split_idx]), 
                              input_mapper=self.input_mapper, output_mapper=self.output_mapper,
@@ -191,3 +201,36 @@ class Seq2SeqDs:
                            min_input_seqlen=self.min_input_seqlen, min_output_seqlen=self.max_output_seqlen,
                            one2one_mapping=self.one2one_mapping, crop_to_seqlen=self.crop_seqlen)
         return train_ds, val_ds
+
+    def compute_ds_CER(self, use_editdistance: bool = False) -> float:
+        """Compute the Character Error Rate (CER) of the dataset."""
+        total_correct = 0
+        total_length = 0
+        if use_editdistance:
+            raise NotImplementedError("Edit distance is not implemented yet.")
+        else:
+            for src_txt, tgt_txt in zip(self.src_text_blocks, self.tgt_text_blocks):
+                total_length += max(len(tgt_txt), len(src_txt))
+                if len(src_txt) == len(tgt_txt):
+                    total_correct += len([1 for s, t in zip(src_txt, tgt_txt) if s == t])
+        accuracy = total_correct / total_length if total_length > 0 else 0.0
+        cer = 1 - accuracy
+        return cer
+
+    def render_sample(self, n: int = 0, include_alphabet: bool = False) -> str:
+        src_txt = self.src_text_blocks[n]
+        tgt_txt = self.tgt_text_blocks[n]
+        if include_alphabet:
+            res = f"Input Alphabet: {self.input_mapper.src_alphabet_str}\n"
+            res += f"Output Alphabet: {self.output_mapper.src_alphabet_str}\n"
+        else:
+            res = ""
+        res += f"Sample {n}:\n"
+        res += f"Source        : {src_txt}\n"
+        res += f"Source decoded: {self.input_mapper.intlabel_seq_to_str(self[n][0])}\n"
+        res += f"Target        : {tgt_txt}\n"
+        res += f"Target decoded: {self.output_mapper.intlabel_seq_to_str(self[n][1])}\n"
+        res += f"Source Tensor: {self[n][0]}\n"
+        res += f"Target Tensor: {self[n][1]}\n"
+        return res
+    

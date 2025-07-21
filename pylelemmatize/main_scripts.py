@@ -1,5 +1,4 @@
 import sys
-import fargv
 from typing import Dict, Tuple, Union, Optional
 from collections import defaultdict
 import numpy as np
@@ -69,7 +68,7 @@ def main_alphabet_extract_corpus_alphabet():
     if not args.dont_show_histogram:
         ht = time.time()
         corpus_str = ''.join(all_corpus_strs)
-        nums, freqs, names = GenericLemmatizer.from_alphabet_str(alphabet_str=found_alphabet_str).get_unigram(corpus_str)
+        nums, freqs, names = GenericLemmatizer.from_alphabet_mapping(alphabet_str=found_alphabet_str).get_unigram(corpus_str)
         most_frequent = np.argsort(freqs)
         print(f"\nUnigram model in reverced frequencies:", file=sys.stderr)
         for n in most_frequent:

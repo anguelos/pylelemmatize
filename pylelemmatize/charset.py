@@ -109,7 +109,7 @@ def main_map_test_corpus_on_alphabets():
             alphabet = GenericLemmatizer.from_alphabet_mapping(alphabet_str, mapping_dict=None)
         else:
             #alphabet = AlphabetBMP(alphabet_str=alphabet_str)  #  This is a hack to ensure that the vectorized mapper is large enough for all characters in MUFI
-            alphabet = LemmatizerBMP.from_alphabet_str(alphabet_str) 
+            alphabet = LemmatizerBMP.from_alphabet_mapping(alphabet_str)
 
         mapped_corpus_str = alphabet(found_corpus_str)
 

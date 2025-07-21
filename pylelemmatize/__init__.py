@@ -15,6 +15,6 @@ except ImportError as e:
 
 if have_torch:
     from .mapper_ds import Seq2SeqDs
-    from .demapper_lstm import DemapperLSTM, main_train_one2one
+    from .demapper_lstm import DemapperLSTM, main_train_one2one, main_infer_one2one
 else:
     print("Warning: Torch is not installed. Seq2SeqDs will not be available.", file=sys.stderr)

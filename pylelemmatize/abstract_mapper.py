@@ -1,3 +1,4 @@
+from difflib import SequenceMatcher
 import sys
 import time
 from typing import Any, Dict, Generator, Literal, Optional, Set, Tuple, Union
@@ -6,9 +7,9 @@ import numpy as np
 from abc import ABC, abstractmethod
 import unicodedata
 import types
+import string
 
 from unidecode import unidecode
-
 
 
 def fast_str_to_numpy(s: str, dtype=np.uint16) -> np.ndarray:
@@ -43,45 +44,46 @@ def fast_cer(pred: str, true: str) -> float:
     return np.mean(np_pred != np_true)
 
 
-def _densify_unicode(self: Any, text: str) -> str:
-    """
-    Convert a Unicode string to its composed (dense) form using NFC normalization.
-    
-    Args:
-        text (str): The input Unicode string.
-    
-    Returns:
-        str: The composed (dense) Unicode string.
-    """
-    return unicodedata.normalize('NFC', text)
-
-def _decompose_unicode(self: Any, text: str) -> str:
-    """
-    Convert a Unicode string to its decomposed (sparse) form using NFD normalization.
-    
-    Args:
-        text (str): The input Unicode string.
-    
-    Returns:
-        str: The decomposed (sparse) Unicode string.
-    """
-    return unicodedata.normalize('NFD', text)
 
 
-def _null_unicode(self: Any, text: str) -> str:
-    """
-    Normalize a Unicode string to its composed (dense) form using NFC normalization.
-    
-    Args:
-        text (str): The input Unicode string.
-    
-    Returns:
-        str: The normalized Unicode string.
-    """
-    return text
+class AbstractLemmatizer(ABC):    
+    def _densify_unicode(self: Any, text: str) -> str:
+        """
+        Convert a Unicode string to its composed (dense) form using NFC normalization.
+        
+        Args:
+            text (str): The input Unicode string.
+        
+        Returns:
+            str: The composed (dense) Unicode string.
+        """
+        return unicodedata.normalize('NFC', text)
+
+    def _decompose_unicode(self: Any, text: str) -> str:
+        """
+        Convert a Unicode string to its decomposed (sparse) form using NFD normalization.
+        
+        Args:
+            text (str): The input Unicode string.
+        
+        Returns:
+            str: The decomposed (sparse) Unicode string.
+        """
+        return unicodedata.normalize('NFD', text)
 
 
-class AbstractLemmatizer(ABC):
+    def _null_unicode(self: Any, text: str) -> str:
+        """
+        Normalize a Unicode string to its composed (dense) form using NFC normalization.
+        
+        Args:
+            text (str): The input Unicode string.
+        
+        Returns:
+            str: The normalized Unicode string.
+        """
+        return text
+
     @classmethod
     def __create_mappers(cls, mapping_dict, unknown_chr) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray, np.ndarray, np.ndarray]:
         max_ord = max(ord(c) for c in mapping_dict.keys() | mapping_dict.values() | {unknown_chr})
@@ -136,12 +138,11 @@ class AbstractLemmatizer(ABC):
         """
         self.__unicode_normalization = normalize_unicode
         if normalize_unicode.lower() == "dense":
-            self.normalize_unicode = types.MethodType(_densify_unicode, self)
-            
+            self.normalize_unicode = self._densify_unicode
         elif normalize_unicode == "composite":
-            self.normalize_unicode = types.MethodType(_decompose_unicode, self)
+            self.normalize_unicode = self._decompose_unicode
         elif normalize_unicode is None:
-            self.normalize_unicode = types.MethodType(_null_unicode, self)
+            self.normalize_unicode = self._null_unicode
         else:
             raise ValueError(f"Unknown normalization type: {normalize_unicode}")
 
@@ -244,66 +245,99 @@ class AbstractLemmatizer(ABC):
         return values, counts, labels
 
 
+def char_similarity(a: str, b: str) -> float:
+    """Compute similarity score between two characters based on multiple heuristics."""
+    score = 0.0
+
+    # Basic identity
+    if a == b:
+        return 1.0
+
+    # Unicode name similarity
+    try:
+        name_a = unicodedata.name(a)
+    except ValueError:
+        name_a = ""
+    try:
+        name_b = unicodedata.name(b)
+    except ValueError:
+        name_b = ""
+
+    if name_a and name_b:
+        matcher = SequenceMatcher(None, name_a, name_b)
+        score += 0.3 * matcher.ratio()
+
+    # Lowercase/uppercase match
+    if a.lower() == b.lower() and a.isalpha() and b.isalpha():
+        score += 0.2
+
+    # Whitespace match
+    if a.isspace() and b.isspace():
+        score += 0.1
+
+    # Punctuation match
+    if a in string.punctuation and b in string.punctuation:
+        score += 0.1
+
+    # Unidecode match
+    if unidecode(a) == unidecode(b) and unidecode(a) != "":
+        score += 0.3
+
+    return min(score, 1.0)
+
+
 class GenericLemmatizer(AbstractLemmatizer):
     @classmethod
-    def from_alphabet_str(cls, alphabet_str, mapping_dict: Optional[Dict[str, str]] = None, unknown_chr: str = "�") -> 'GenericLemmatizer':
-        """
-        Create a GenericLemmatizer instance from a character mapping dictionary.
-        
-        Args:
-            mapping_dict (Dict[str, str]): A dictionary mapping source characters to destination characters.
-            unknown_chr (str): Character to use for unknown characters not in the mapping.
-        
-        Returns:
-            GenericLemmatizer: An instance of GenericLemmatizer.
-        """
-        full_mapping_dict = {c: c for c in alphabet_str}
-        if mapping_dict is not None:
-            full_mapping_dict.update(mapping_dict)
-        return cls(mapping_dict=full_mapping_dict, unknown_chr=unknown_chr)
-
-    @classmethod
-    def from_alphabet_mapping(cls, src_alphabet_str: str, dst_alphabet_str: Optional[str] = None, custom_map: Optional[Dict[str, str]] = None, unknown_chr: str = "�", guess_unidecode: bool = False) -> 'LemmatizerBMP':
-        mapping_dict = {}
+    def from_alphabet_mapping(cls, src_alphabet_str: str, dst_alphabet_str: Optional[str] = None, unknown_chr: str = "�", override_map: Optional[Dict[str, str]] = None, min_similarity:float=.3, verbose: int = 0) -> 'GenericLemmatizer':
         if dst_alphabet_str is None:
-            dst_alphabet_str = src_alphabet_str
-        if custom_map is not None:
-            src_alphabet_str = ''.join(sorted(set(src_alphabet_str + ''.join(custom_map.keys()))))
-        for c in src_alphabet_str:
-            c = _densify_unicode(None, c)  # Normalize the character to NFC)
-            if custom_map and c in custom_map:
-                print(f"CUSTOM Using custom mapping for character {repr(c)}: {repr(custom_map[c])}")
-                mapping_dict[c] = custom_map[c]
-            elif c in dst_alphabet_str and len(c) == 1:
-                mapping_dict[c] = c
-            elif c in dst_alphabet_str and len(c) >= 1:
-                mapping_dict[c] = c[0]
-            elif c in dst_alphabet_str and len(c) == 0:
-                mapping_dict[c] = unknown_chr
-            elif guess_unidecode:
-                d = _densify_unicode(None, unidecode(c))
-                if len(d) > 1:
-                    #print(f"Warning: Unidecode for character {repr(c)} -> {repr(d)} is not a single character. Using unknown character instead.")
-                    mapping_dict[c] = d[0]
-                elif len(d) == 0:
-                    #print(f"Warning: Unidecode for character {repr(c)} mapps to ''. Using unknown character instead.")
-                    mapping_dict[c] = unknown_chr
-                elif len(d) == 1:
-                    mapping_dict[c] = d
-                else:
-                    raise ValueError(f"Unidecode for character {repr(c)} returned an unexpected length: {len(d)}. Expected 0, 1 or more than 1.")
-        for k in list(mapping_dict):
-            if len(k) != 1 or len(mapping_dict[k]) != 1:
-                #print(f"Warning: Mapping for character {repr(k)} is not a single character. Removing it from the mapping.")
-                #v = mapping_dict[k]
-                #print(f"K({repr(k)}) Dense: {len(_densify_unicode(None, k))} Sparce: {len(_decompose_unicode(None, k))}, As is:{len(k)}")
-                #print(f"V({repr(v)}) Dense: {len(_densify_unicode(None, v))} Sparce: {len(_decompose_unicode(None, v))}, As is:{len(v)}\n")
-                del mapping_dict[k]
-        for k in list(mapping_dict):
-            if '' in (k, mapping_dict[k]):
-                #print(f"Warning: Empty mapping for character {repr(k)} in {repr(mapping_dict[k])}. Removing it from the mapping.")
-                del mapping_dict[k]
-        return cls(mapping_dict, unknown_chr)
+            mapping_dict = {c:c for c in src_alphabet_str}
+            if unknown_chr not in mapping_dict:
+                mapping_dict[unknown_chr] = unknown_chr
+            return cls(mapping_dict=mapping_dict, unknown_chr=unknown_chr)
+        mapping_dict = defaultdict(lambda: unknown_chr)  # Default to unknown character
+        if override_map is not None:
+            mapping_dict.update(override_map)  # Map destination characters to themselves
+            remain_sources = []
+            for c in src_alphabet_str:
+                if c not in override_map:
+                    remain_sources.append(c)
+        else:
+            remain_sources = list(src_alphabet_str)
+        if unknown_chr not in dst_alphabet_str:
+            dst_alphabet_str = unknown_chr + dst_alphabet_str
+        s_map = np.zeros((len(remain_sources), len(dst_alphabet_str)))
+        unknown_chr_dst_idx = dst_alphabet_str.index(unknown_chr)
+        for src_n, src_c in enumerate(remain_sources):
+            for dst_n, dst_c in enumerate(dst_alphabet_str):
+                s_map[src_n, dst_n] = char_similarity(src_c, dst_c)
+
+        too_small = s_map < min_similarity
+        s_map[too_small] = 0  # Apply minimum similarity threshold
+        s_map[:, unknown_chr_dst_idx]+= .00001  # Set similarity to unknown character to 0
+
+        if verbose:
+            print(f"Similarity matrix:\n{s_map}\n", file=sys.stderr)
+
+        dst_symbol_array = np.array(list(dst_alphabet_str), dtype=np.str_)
+        src_symbol_array = np.array(list(remain_sources), dtype=np.str_)
+        best_dst_idx = np.argmax(s_map, axis=1)
+
+        if verbose:
+            print(f"Best destination indices: {best_dst_idx}\n", file=sys.stderr)
+            print(f"Source symbols: {src_symbol_array}\n", file=sys.stderr)
+            print(f"Destination symbols: {dst_symbol_array}\n", file=sys.stderr)
+            if verbose > 1:
+                for n in range(s_map.shape[0]):
+                    print(f"Source: {repr(src_symbol_array[n])} -> Best Destination: {repr(dst_symbol_array[best_dst_idx[n]])} with similarity {s_map[n, best_dst_idx[n]]:.4f}", file=sys.stderr)
+        mapping_dict.update({src_symbol_array[n]: dst_symbol_array[best_dst_idx[n]] for n in range(len(remain_sources))})
+        mapping_dict = {k: v for k, v in sorted(mapping_dict.items())}
+        if verbose:
+            print(f"Mapping dictionary: {mapping_dict}\n", file=sys.stderr)
+        if unknown_chr not in mapping_dict:
+            mapping_dict[unknown_chr] = unknown_chr
+        else:
+            assert mapping_dict[unknown_chr] == unknown_chr, f"unknown_chr must map to itself in the mapping_dict. Found {repr(mapping_dict[unknown_chr])} instead of {repr(unknown_chr)}."
+        return cls(mapping_dict=mapping_dict, unknown_chr=unknown_chr)
 
     def copy_removing_unused_inputs(self, txt: str) -> Any:
         txt = self.normalize_unicode(txt)
@@ -318,6 +352,7 @@ class GenericLemmatizer(AbstractLemmatizer):
 
     def __init__(self, mapping_dict = {}, unknown_chr: str = "�", unicode_normalization: Literal["Dense", "Composed", None] = "Dense"):
         super().__init__(unicode_normalization=unicode_normalization, unknown_chr=unknown_chr)
+        #print(f"Creating GenericLemmatizer with mapping_dict={repr(mapping_dict)} and unknown_chr={repr(unknown_chr)}")
         self.mapping_dict = mapping_dict.copy()
     
     def len(self) -> int:
@@ -334,8 +369,11 @@ class GenericLemmatizer(AbstractLemmatizer):
 
     @property
     def dst_alphabet_str(self) -> str:
-        return ''.join(sorted(set(self.mapping_dict.values())))
-    
+        res = ''.join(sorted(set(self.mapping_dict.values())))
+        if self.unknown_chr not in res:
+            res += self.unknown_chr
+        return res
+
     def __repr__(self):
         return f"GenericLemmatizer(mapping_dict={repr(self.mapping_dict)}, unknown_chr={repr(self.unknown_chr)})"
 
