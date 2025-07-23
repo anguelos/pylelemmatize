@@ -4,44 +4,73 @@ from matplotlib import pyplot as plt
 import numpy as np
 import networkx as nx
 from scipy.cluster.hierarchy import linkage, to_tree, dendrogram
-from unidecode import unidecode
-import unicodedata
-from itertools import chain, combinations
+from .abstract_mapper import char_similarity
+import numpy as np
 
 
-def any_to_ascii(alphabet_str)-> Dict[str, str]:
-    """
-    Convert any string to ASCII using unidecode.
-    
-    Args:
-        alphabet_str (str): The input string to convert.
-        
-    Returns:
-        str: The ASCII representation of the input string.
-    """
-    return {chr: unidecode(chr) for chr in alphabet_str}
+def branch_name(n: List[str]) -> str:
+    return f"{'+'.join(sorted(n))}"
 
 
-def composite_to_simpler(alphabet_str: str) -> Dict[str, str]:
-    assert alphabet_str == unicodedata.normalize('NFC', alphabet_str), "Input string must be in NFC (compressed) form."
-    compressed_to_decompressed_alphabet = {chr: list(unicodedata.normalize('NFD', chr)) for chr in alphabet_str}
-    all_descendants = defaultdict(lambda: list())
-    def chr_length(chr: str) -> int:
-        return (chr, len(unicodedata.normalize('NFD', chr)))
-    for full_chr, chr_list in compressed_to_decompressed_alphabet.items():
-        if len(chr_list) == 1:
-            all_descendants[chr_list[0]].append(chr_list[0])
-            continue
-        base_chr = ''.join(c for c in chr_list if unicodedata.combining(c) == 0)
-        assert len(base_chr) == 1, "Base character must be a single character."
-        for new_chr_list in combinations(chr_list, len(chr_list) - 1):
-            try:                
-                new_chr = ''.join(new_chr_list)
-                _ = unicodedata.name(new_chr)
-                all_descendants[new_chr].append(full_chr)
-            except ValueError:
-                continue  # skip invalid characters
-    all_descendants = {k: list(sorted(set(v))) for k, v in all_descendants.items()}
-    return all_descendants
+def leaf_name(n:str)->str:
+    return n
 
 
+def get_dm(items:np.ndarray, similarity_f=char_similarity) -> np.ndarray:
+    dm = np.zeros([len(items), len(items)])
+    for n1, ch1 in enumerate(items):
+        for n2, ch2 in enumerate(items):
+            dm[n1, n2] = similarity_f(ch1, ch2)
+    return dm
+
+
+
+def get_branches(ax, linkage_matrix, symbols):
+    locations = np.zeros()
+
+
+def plot_dendrogram(DM,linkage_matrix, labels, show=False):
+    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    def get_leaf_labels(id, n, _labels):
+        if id < n:
+            return [_labels[id]]
+        else:
+            left, right = int(linkage_matrix[id - n, 0]), int(linkage_matrix[id - n, 1])
+            return get_leaf_labels(left, n, _labels) + get_leaf_labels(right, n, _labels)
+
+    # Custom leaf labeling function
+    def llf(id):
+        leaf_labels = [leaf_name(n) for n in sorted(get_leaf_labels(id, len(DM), labels))]
+        return ''.join(leaf_labels)
+
+    # Plot the dendrogram with custom leaf labelsextended_keyboard_characters
+    dendrogram(
+        linkage_matrix,
+        leaf_label_func=llf,  # Use the custom label function
+        leaf_rotation=90,
+        leaf_font_size=12,
+        show_contracted=False  # Display intermediary branches
+    )
+    ax.set_yscale("symlog")
+    #ax.yscale('symlog')
+    ax.set_title('Dendrogram with Custom Node Labels')
+    return fig, ax
+
+
+def main_char_similarity_tree():
+    import fargv
+    import string
+    from .charset_iso import get_encoding_dicts
+    char_dicts = get_encoding_dicts()
+    p = {
+        "characters": char_dicts["iso8859_2"]
+    }
+    args, _ = fargv.fargv(p)
+    characters = np.array(list(args.characters))
+    dm = get_dm(list(characters))
+    linkage_matrix = linkage(dm, "ward")
+    print(linkage_matrix)
+    print(linkage_matrix)
+    #print(linkage.__doc__)
+    f, ax = plot_dendrogram(dm, linkage_matrix=linkage_matrix, labels = list(args.characters))
+    plt.show()

@@ -60,4 +60,3 @@ def get_encoding_dicts() -> Dict[str, List[str]]:
     return {k: get_characters_in_codepage(k) for k in get_charactermap_names()['iso-8859']}
 
 iso_only_alphabet = get_encoding_dicts()
-

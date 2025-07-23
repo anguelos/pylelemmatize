@@ -47,7 +47,7 @@ class DemapperLSTM(torch.nn.Module):
         
         lstm_layers = []  
         #self.lstm_direction = [d for d in directions]
-        dropouts_layers = [torch.nn.Dropout1d(p) for p in dropout_vals]
+        dropouts_layers = [torch.nn.Dropout(p) for p in dropout_vals]
         self.dropout_layers = torch.nn.ModuleList(dropouts_layers)
         #prev_bidirectional = False
         for n in range(len(hidden_sizes) - 1):
@@ -120,7 +120,14 @@ class DemapperLSTM(torch.nn.Module):
     def epoch(self) -> int:
         return len(self.history['train_loss'])
 
-    def save(self, path: str):
+    def save(self, path: str, args: Optional[Any]= None):
+        if args is not None:
+            if 'args' not in self.history:
+                self.history['args'] = {self.epoch: args}
+            else:
+                last_args = sorted(self.history['args'].items(), key=lambda x: x[0])[-1][1]
+                if last_args != args:
+                    self.history['args'][self.epoch] = args
         dict_to_save = {
             'input_alphabet': self.input_mapper,
             'output_alphabet': self.output_mapper,
@@ -330,7 +337,7 @@ def main_train_one2one():
     optimizer, criterion = net.get_one2one_train_objects(lr=args.lr)
     net.validate_one2one_epoch(valid_ds, criterion=criterion, batch_size=1)  # Validate before training
     print(net)
-    net.save(args.output_model_path)
+    net.save(args.output_model_path, args=args)  # Save the initial model state
     while net.epoch < args.nb_epochs:
         print(f"Training epoch {net.epoch + 1}...")
         train_loss, train_acc = net.train_one2one_epoch(train_ds, criterion=criterion, optimizer=optimizer, batch_size=args.batch_size, pseudo_batch_size=args.pseudo_batch_size)
@@ -346,7 +353,7 @@ def main_train_one2one():
             print(f"Input     : {in_str}")
             print(f"Target    : {out_str}")
             print(f"Predicted : {pred_str}\n\n")
-        net.save(args.output_model_path)
+        net.save(args.output_model_path, args=args)  # Save the model after each epoch
 
 
 def main_infer_one2one():

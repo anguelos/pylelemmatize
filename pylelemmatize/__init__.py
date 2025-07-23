@@ -1,10 +1,12 @@
 from .main_scripts import main_alphabet_extract_corpus_alphabet, main_alphabet_evaluate_merges
+from .abstract_mapper import GenericLemmatizer, char_similarity
 
 from .fast_mapper import LemmatizerBMP
 from .charset import allbmp_encoding_alphabet_strings, allnonbmp_encoding_alphabet_strings, main_map_test_corpus_on_alphabets
 #from .charset import chr_iso, chr_mes, chr_ascii, chr_mufi_bmp, chr_mufi_nonbmp
 from .util import extract_transcription_from_page_xml, main_extract_transcription_from_page_xml
 import sys
+from .philogeny import main_char_similarity_tree
 
 
 try:
