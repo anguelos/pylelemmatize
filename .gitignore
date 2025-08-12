@@ -1,4 +1,5 @@
 experiments/mufi_extraction/MUFI-CodeChart-4-0.pdf
+paper
 
 # Python specific ignores
 __pycache__/
