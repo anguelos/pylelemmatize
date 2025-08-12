@@ -1,15 +1,12 @@
 from difflib import SequenceMatcher
 import sys
-import time
+
 from typing import Any, Dict, Generator, Literal, Optional, Set, Tuple, Union
 from collections import defaultdict
 import numpy as np
 from abc import ABC, abstractmethod
 import unicodedata
-import types
-import string
-
-from unidecode import unidecode
+from .char_distance import char_similarity
 
 
 def fast_str_to_numpy(s: str, dtype=np.uint16) -> np.ndarray:
@@ -212,12 +209,12 @@ class AbstractLemmatizer(ABC):
 
     def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
         # adding all characters atleast once to make np.unique count zero counts
-        src_alphabet_str, _, __np_chrord2dense, __np_dense2chrord = self.__create_mappers(self.mapping_dict, self.unknown_chr)
-        np_text = fast_str_to_numpy(self.unknown_chr + src_alphabet_str + text)
-        mapped_np_text = __np_chrord2dense[np_text]
+        #src_alphabet_str, _, __np_chrord2dense, __np_dense2chrord = self.__create_mappers(self.mapping_dict, self.unknown_chr)
+        np_text = fast_str_to_numpy(self.unknown_chr + self.src_alphabet_str + text)
+        mapped_np_text = self.__np_chrord2dense[np_text]
         values, counts = np.unique(mapped_np_text, return_counts=True)
         counts = counts - 1  # removing the counts of the added characters
-        labels = np.array([c for c in fast_numpy_to_str(__np_dense2chrord[values])], dtype=np.str_)
+        labels = np.array([c for c in fast_numpy_to_str(self.__np_dense2chrord[values])], dtype=np.str_)
         return values, counts, labels
 
     def get_cer(self, pred: str, true: str) -> float:
@@ -232,63 +229,24 @@ class AbstractLemmatizer(ABC):
         mapped_np_text = self.__npint2int[np_text]
         return np.mean(np_text != mapped_np_text)
 
-    def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
-        # adding all characters atleast once to make np.unique count zero counts
-        src_alphabet_str, _, __np_chrord2dense, __np_dense2chrord = AbstractLemmatizer.__create_mappers(self.mapping_dict, self.unknown_chr)
-        np_text = fast_str_to_numpy(self.unknown_chr + src_alphabet_str + text)
-        mapped_np_text = __np_chrord2dense[np_text]
-        values, counts = np.unique(mapped_np_text, return_counts=True)
-        counts = counts - 1  # removing the counts of the added characters
-        labels = np.array([c for c in fast_numpy_to_str(__np_dense2chrord[values])], dtype=np.str_)
-        labels[0] = self.unknown_chr  # Ensure the unknown character is included
-        print("\n\nLABELS:\n", labels, "\n\n\n")
-        return values, counts, labels
-
-
-def char_similarity(a: str, b: str) -> float:
-    """Compute similarity score between two characters based on multiple heuristics."""
-    score = 0.0
-
-    # Basic identity
-    if a == b:
-        return 1.0
-
-    # Unicode name similarity
-    try:
-        name_a = unicodedata.name(a)
-    except ValueError:
-        name_a = ""
-    try:
-        name_b = unicodedata.name(b)
-    except ValueError:
-        name_b = ""
-
-    if name_a and name_b:
-        matcher = SequenceMatcher(None, name_a, name_b)
-        score += 0.3 * matcher.ratio()
-
-    # Lowercase/uppercase match
-    if a.lower() == b.lower() and a.isalpha() and b.isalpha():
-        score += 0.2
-
-    # Whitespace match
-    if a.isspace() and b.isspace():
-        score += 0.1
-
-    # Punctuation match
-    if a in string.punctuation and b in string.punctuation:
-        score += 0.1
-
-    # Unidecode match
-    if unidecode(a) == unidecode(b) and unidecode(a) != "":
-        score += 0.3
-
-    return min(score, 1.0)
+    # def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
+    #     # adding all characters atleast once to make np.unique count zero counts
+    #     src_alphabet_str, _, __np_chrord2dense, __np_dense2chrord = AbstractLemmatizer.__create_mappers(self.mapping_dict, self.unknown_chr)
+    #     np_text = fast_str_to_numpy(self.unknown_chr + src_alphabet_str + text)
+    #     mapped_np_text = __np_chrord2dense[np_text]
+    #     values, counts = np.unique(mapped_np_text, return_counts=True)
+    #     counts = counts - 1  # removing the counts of the added characters
+    #     labels = np.array([c for c in fast_numpy_to_str(__np_dense2chrord[values])], dtype=np.str_)
+    #     labels[0] = self.unknown_chr  # Ensure the unknown character is included
+    #     print("\n\nLABELS:\n", labels, "\n\n\n")
+    #     return values, counts, labels
 
 
 class GenericLemmatizer(AbstractLemmatizer):
     @classmethod
-    def from_alphabet_mapping(cls, src_alphabet_str: str, dst_alphabet_str: Optional[str] = None, unknown_chr: str = "�", override_map: Optional[Dict[str, str]] = None, min_similarity:float=.3, verbose: int = 0) -> 'GenericLemmatizer':
+    def from_alphabet_mapping(cls, src_alphabet_str: str, dst_alphabet_str: Optional[str] = None,
+                              unknown_chr: str = "�", override_map: Optional[Dict[str, str]] = None,
+                              min_similarity: float = .25, verbose: int = 0) -> 'GenericLemmatizer':
         if dst_alphabet_str is None:
             mapping_dict = {c:c for c in src_alphabet_str}
             if unknown_chr not in mapping_dict:
@@ -337,6 +295,7 @@ class GenericLemmatizer(AbstractLemmatizer):
             mapping_dict[unknown_chr] = unknown_chr
         else:
             assert mapping_dict[unknown_chr] == unknown_chr, f"unknown_chr must map to itself in the mapping_dict. Found {repr(mapping_dict[unknown_chr])} instead of {repr(unknown_chr)}."
+        mapping_dict = {str(k): str(v) for k, v in sorted(mapping_dict.items())}
         return cls(mapping_dict=mapping_dict, unknown_chr=unknown_chr)
 
     def copy_removing_unused_inputs(self, txt: str) -> Any:
@@ -376,5 +335,3 @@ class GenericLemmatizer(AbstractLemmatizer):
 
     def __repr__(self):
         return f"GenericLemmatizer(mapping_dict={repr(self.mapping_dict)}, unknown_chr={repr(self.unknown_chr)})"
-
-

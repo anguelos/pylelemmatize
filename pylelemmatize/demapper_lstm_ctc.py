@@ -231,7 +231,7 @@ def main_train_one2one():
     from pylelemmatize.fast_mapper import LemmatizerBMP
     import glob
     import tqdm
-    from .charset import allbmp_encoding_alphabet_strings
+    from .charsets import allbmp_encoding_alphabet_strings
     import numpy as np
     import random
     

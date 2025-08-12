@@ -7,6 +7,12 @@ from .abstract_mapper import AbstractLemmatizer, GenericLemmatizer, fast_numpy_t
 
 class LemmatizerBMP(GenericLemmatizer):
     @staticmethod
+    def alphabet_in_bmp(alphabet: Optional[str]) -> bool:
+        if alphabet is None:
+            return True
+        return (fast_str_to_numpy(alphabet) > 65535).sum() == 0
+
+    @staticmethod
     def __create_mappers(mapping_dict, unknown_chr) -> Tuple[defaultdict, np.ndarray, Dict[int, str], Dict[str, int], np.ndarray, np.ndarray, np.ndarray]:
         assert all([ord(c)< 65536 for c in mapping_dict.keys()]), "All keys in mapping_dict must be BMP characters."
         assert all([ord(c)< 65536 for c in mapping_dict.values()]), "All values in mapping_dict must be BMP characters."
@@ -61,13 +67,10 @@ class LemmatizerBMP(GenericLemmatizer):
         return fast_numpy_to_str(output_sparse_text)
 
     def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
-        # adding all characters atleast once to make np.unique count zero counts
-        np_text = fast_str_to_numpy(self.unknown_chr +self.src_alphabet_str+text)
-        mapped_np_text = self.__np_chrord2dense[np_text]
-        values, counts = np.unique(mapped_np_text, return_counts=True)
+        np_text = self.str_to_intlabel_seq(self.unknown_chr +self.src_alphabet_str+text)
+        values, counts = np.unique(np_text, return_counts=True)
         counts = counts - 1  # removing the counts of the added characters
-        labels = np.array([c for c in fast_numpy_to_str(self.__np_dense2chrord[values])], dtype=np.str_)
-        labels[0] = self.unknown_chr  # Ensure the unknown character is included
+        labels = self.intlabel_seq_to_str(values)
         return values, counts, labels
 
     def str_to_onehot(self, text: str) -> np.ndarray:
@@ -93,3 +96,28 @@ class LemmatizerBMP(GenericLemmatizer):
     def __repr__(self):
         return f"LemmatizerBMP(mapping_dict={repr(self.mapping_dict)}, unknown_chr={repr(self.unknown_chr)})"
 
+
+def main_remap_alphabet():
+    import fargv
+    from pylelemmatize.charsets import LemmatizerBMP, allbmp_encoding_alphabet_strings
+    p = {
+        "mode": "unigram",
+        "inputs": set([]),
+        "map": "U:V,u:v",
+        "append_extention": ".remap.txt",
+        "chars_beyond_bmp": False,
+        "charset_name": "mes3a",
+    }
+    args, _ = fargv.fargv(p)
+    if args.mode == "unigram":
+        raise ValueError(f"Unknown mode: {args.mode}. Available: ['unigram', 'remap']")
+    remap = {k: v for k, v in (m.split(':') for m in args.map.split(','))}
+    fname_2txt = {}
+    for fname in args.inputs:
+        txt = open(fname, 'r', encoding='utf-8').read()
+        fname_2txt[fname] = txt
+
+    if args.charset_name == "":
+        pass
+    elif args.charset_name not in allbmp_encoding_alphabet_strings:
+        raise ValueError(f"Unknown charset name: {args.charset_name}. Available: {list(allbmp_encoding_alphabet_strings.keys())}")

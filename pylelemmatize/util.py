@@ -1,6 +1,5 @@
 import re
 from typing import Generator, Set, Union, List
-import xml.etree.ElementTree as ET
 import tqdm
 
 
@@ -46,6 +45,8 @@ def extract_transcription_from_page_xml(xml_content, line_separator="\n", linese
     Returns:
         str: The full transcription with each <TextLine> stitched by tabs and lines separated by newlines.
     """
+    import xml.etree.ElementTree as ET
+
     try:
         root = ET.fromstring(xml_content)
     except ET.ParseError as e:
@@ -83,6 +84,35 @@ def extract_transcription_from_page_xml(xml_content, line_separator="\n", linese
             lines.append(linesegment_separator.join(line_entries))
 
     return line_separator.join(lines)
+
+
+def print_err(txt="Hello", correct=None, confidence=None):
+    def interpolate_color(c1, c2, t):
+        """Linearly interpolate between two RGB colors c1 and c2 by t (0 to 1)."""
+        return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+
+    def colorize_char(char, correct=True, confidence=1.0):
+        """
+        Return a string with ANSI escape codes for a single character.
+        Green foreground if correct, red if incorrect.
+        Background from black (conf=1.0) to white (conf=0.0).
+        """
+        # Foreground colors
+        fg = (0, 255, 0) if correct else (255, 0, 0)  # green or red
+
+        # Background interpolation: black (1.0) → white (0.0)
+        bg = interpolate_color((0, 0, 0), (255, 255, 255), 1 - confidence)
+
+        return f"\x1b[38;2;{fg[0]};{fg[1]};{fg[2]}m\x1b[48;2;{bg[0]};{bg[1]};{bg[2]}m{char}\x1b[0m"
+    if correct is None:
+        correct = [True] * len(txt)
+    if confidence is None:
+        confidence = [1.0] * len(txt)
+
+    output = ''
+    for c, corr, conf in zip(txt, correct, confidence):
+        output += colorize_char(c, corr, conf)
+    print(output)
 
 
 def main_extract_transcription_from_page_xml():

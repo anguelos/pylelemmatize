@@ -20,8 +20,11 @@ setup(
     python_requires='>=3.6',
     entry_points={
         'console_scripts': [
+            'll_remap_alphabet=pylelemmatize:main_remap_alphabet',
+            'll_render_char_similarity_tree=pylelemmatize:main_char_similarity_tree',
             'll_infer_one2one=pylelemmatize:main_infer_one2one',
             'll_train_one2one=pylelemmatize:main_train_one2one',
+            'll_train_one2one_report=pylelemmatize:main_report_demapper',
             'll_extract_corpus_alphabet=pylelemmatize:main_alphabet_extract_corpus_alphabet',
             'll_test_corpus_on_alphabets=pylelemmatize:main_map_test_corpus_on_alphabets',
             'll_evaluate_merges=pylelemmatize:main_alphabet_evaluate_merges',

@@ -6,7 +6,6 @@ from .abstract_mapper import AbstractLemmatizer, fast_str_to_numpy, fast_numpy_t
 from .fast_mapper import LemmatizerBMP
 
 
-
 def main_alphabet_extract_corpus_alphabet():
     import fargv, glob, time
     from .util import generate_corpus
@@ -23,7 +22,8 @@ def main_alphabet_extract_corpus_alphabet():
         "strip_xml": True,
         "all_is_xml": False,
         "unidecode": False,
-        "output_tsv": ""
+        "output_tsv": "",
+        "nobmp": False,
     }
     args, _ = fargv.fargv(p)
 
@@ -37,23 +37,28 @@ def main_alphabet_extract_corpus_alphabet():
         corpus_files = set([])
 
     total_size = 0
-    all_alphabets_strs = []
     all_corpus_strs = []
-    for file_contnets in generate_corpus(glob_files | corpus_files, verbose=args.verbose,
-                                         strip_xml=args.strip_xml, treat_all_file_as_xml=args.all_is_xml):
-        total_size += len(file_contnets)
-        all_corpus_strs.append(file_contnets)
-        all_alphabets_strs.append(LemmatizerBMP.fast_alphabet_extraction(file_contnets))
-    found_alphabet_str = ''.join(sorted(set(''.join(all_alphabets_strs))))
 
+    for file_contents in generate_corpus(glob_files.union(corpus_files), verbose=args.verbose,
+                                         strip_xml=args.strip_xml, treat_all_file_as_xml=args.all_is_xml):
+        total_size += len(file_contents)
+        all_corpus_strs.append(file_contents)
+    all_corpus = ''.join(all_corpus_strs)
+    found_alphabet_str = AbstractLemmatizer.fast_alphabet_extraction(all_corpus)
+    
     if not args.dont_show_alphabet:
         if args.output_tsv == "stdout":
             print(found_alphabet_str, file=sys.stderr)
         else:
             print(found_alphabet_str)
 
+    if args.nobmp:
+        mapper = GenericLemmatizer.from_alphabet_mapping(found_alphabet_str, unknown_chr="�")
+    else:
+        mapper = LemmatizerBMP.from_alphabet_mapping(found_alphabet_str, unknown_chr="�")
+
     if args.output_tsv != "":
-        tsv_str = LemmatizerBMP(alphabet_str=found_alphabet_str).alphabet_tsv
+        tsv_str = mapper.alphabet_tsv
         if args.output_tsv == "stdout":
             print(tsv_str)
         elif args.output_tsv == "stderr":
@@ -61,16 +66,16 @@ def main_alphabet_extract_corpus_alphabet():
         else:
             with open(args.output_tsv, "w") as f:
                 f.write(tsv_str)
-
+    
     if not args.dont_count_alphabet:
         print(f"Alphabet Length: {len(found_alphabet_str)}", file=sys.stderr)
 
     if not args.dont_show_histogram:
         ht = time.time()
         corpus_str = ''.join(all_corpus_strs)
-        nums, freqs, names = GenericLemmatizer.from_alphabet_mapping(alphabet_str=found_alphabet_str).get_unigram(corpus_str)
+        nums, freqs, names = mapper.get_unigram(corpus_str)
         most_frequent = np.argsort(freqs)
-        print(f"\nUnigram model in reverced frequencies:", file=sys.stderr)
+        print(f"\nUnigram model in reversed frequencies:", file=sys.stderr)
         for n in most_frequent:
             if args.unidecode:
                 try:                    
@@ -115,11 +120,11 @@ def main_alphabet_evaluate_merges():
     total_size = 0
     all_alphabets_strs = []
     all_corpus_strs = []
-    for file_contnets in generate_corpus(glob_files | corpus_files, verbose=args.verbose,
+    for file_contents in generate_corpus(glob_files | corpus_files, verbose=args.verbose,
                                          strip_xml=args.strip_xml, treat_all_file_as_xml=args.all_is_xml):
-        total_size += len(file_contnets)
-        all_corpus_strs.append(file_contnets)
-        all_alphabets_strs.append(AbstractLemmatizer.fast_alphabet_extraction(file_contnets))
+        total_size += len(file_contents)
+        all_corpus_strs.append(file_contents)
+        all_alphabets_strs.append(AbstractLemmatizer.fast_alphabet_extraction(file_contents))
     found_alphabet_str = ''.join(sorted(set(''.join(all_alphabets_strs))))
     corpus_str = ''.join(all_corpus_strs)
 

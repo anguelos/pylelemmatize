@@ -22,29 +22,8 @@ def get_characters_in_codepage(codepage):
     return ''.join(characters)
 
 
-
-def encoding_to_ascii(alphabet, force_min_len_to_one: bool = True, force_max_len_to_one: bool = False):
-    mapping = [(letter, unidecode(letter)) for letter in alphabet]
-    if force_min_len_to_one:
-        mapping = [(k, v) if len(v) >= 1 else (k, '�') for k, v in mapping]
-    if force_max_len_to_one:
-        mapping = [(k, v) if len(v) <= 1 else (k, v[0]) for k, v in mapping]
-    return {k: v for k, v in mapping}
-
-
 def simplify_string(s):
     return ''.join(sorted(set(s)))
-
-# codepage_alphabets = get_encoding_dicts()
-
-# print("codepage_alphabets = {")
-# for k, v in codepage_alphabets.items():
-#     print(f"{repr(k.split('_')[-1])}: {repr(v)} ,")
-# print("}")
-
-# #greek_to_ascii = encoding_to_ascii(codepage_alphabets['iso8859_7'], force_min_len_to_one=True, force_max_len_to_one=True)
-# #for k, v in greek_to_ascii.items():
-# #    print(f"{k}: {repr(v)}")
 
 
 def get_charactermap_names() -> Dict[str, List[str]]:
@@ -59,5 +38,6 @@ def get_charactermap_names() -> Dict[str, List[str]]:
 def get_encoding_dicts() -> Dict[str, List[str]]:
     return {k: get_characters_in_codepage(k) for k in get_charactermap_names()['iso-8859']}
 
-iso_only_alphabet = get_encoding_dicts()
+
+iso_alphabets = ['iso_8859_10', 'iso_8859_11', 'iso_8859_13', 'iso_8859_14', 'iso_8859_15', 'iso_8859_16', 'iso_8859_2', 'iso_8859_3', 'iso_8859_4', 'iso_8859_5', 'iso_8859_6', 'iso_8859_7', 'iso_8859_8', 'iso_8859_9', 'iso_8859_1']
 
