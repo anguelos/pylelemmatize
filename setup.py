@@ -29,6 +29,7 @@ setup(
             'll_test_corpus_on_alphabets=pylelemmatize:main_map_test_corpus_on_alphabets',
             'll_evaluate_merges=pylelemmatize:main_alphabet_evaluate_merges',
             'll_extract_transcription_from_page_xml=pylelemmatize.util:main_extract_transcription_from_page_xml',
+            'll_many_to_more=pylelemmatize.many_to_more:many_to_more_main',
         ],
     },
 )
