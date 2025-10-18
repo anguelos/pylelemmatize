@@ -404,8 +404,6 @@ def main_report_demapper():
         nb_epochs = len(model.history['train_loss'])
         validation_epochs = sorted(model.history['valid_accuray'].keys())
 
-
-
 def main_infer_one2one():
     import fargv
     from pathlib import Path

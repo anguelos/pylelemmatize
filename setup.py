@@ -5,7 +5,7 @@ setup(
     version='0.0.1',
     packages=find_packages(),
     install_requires=[
-        'numpy', 'unidecode', 'fargv', 'matplotlib', 'scipy', 'tqdm', 'networkx'
+        'numpy', 'unidecode', 'fargv', 'matplotlib', 'scipy', 'tqdm', 'networkx', 'lxml'
     ],
     author='Anguelos Nicolaou',
     author_email='anguelos.nicolaou@gmail.com',
@@ -30,6 +30,11 @@ setup(
             'll_evaluate_merges=pylelemmatize:main_alphabet_evaluate_merges',
             'll_extract_transcription_from_page_xml=pylelemmatize.util:main_extract_transcription_from_page_xml',
             'll_many_to_more=pylelemmatize.many_to_more:many_to_more_main',
+            'll_many_to_more_evaluate=pylelemmatize.many_to_more:many_to_more_evaluate_main',
+            'll_create_postcorrection_tsv=pylelemmatize:main_create_postcorrection_tsv',
+            'll_train_substitution_only_postcorrection=pylelemmatize:main_train_substitution_only_postcorrection',
+            'll_textline_full_cer=pylelemmatize.substitution_augmenter:main_textline_full_cer',
+            'll_postcorrection=pylelemmatize.substitution_augmenter:main_postcorrection_infer',
         ],
     },
 )

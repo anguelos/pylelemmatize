@@ -39,3 +39,6 @@ if "torch" in sys.modules:
     from .demapper_lstm import DemapperLSTM, main_train_one2one, main_infer_one2one, main_report_demapper
 else:
     print("Warning: Torch is not loaded. Seq2SeqDs will not be available.", file=sys.stderr)
+
+
+from .substitution_augmenter import main_create_postcorrection_tsv, main_train_substitution_only_postcorrection
