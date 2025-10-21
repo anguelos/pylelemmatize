@@ -34,7 +34,8 @@ setup(
             'll_create_postcorrection_tsv=pylelemmatize:main_create_postcorrection_tsv',
             'll_train_substitution_only_postcorrection=pylelemmatize:main_train_substitution_only_postcorrection',
             'll_textline_full_cer=pylelemmatize.substitution_augmenter:main_textline_full_cer',
-            'll_postcorrection=pylelemmatize.substitution_augmenter:main_postcorrection_infer',
+            'll_postcorrection=pylelemmatize.htr_postcorrection:main_postcorrection_infer',
+            'll_postcorrection_train=pylelemmatize.htr_postcorrection:main_postcorrection_train',
         ],
     },
 )

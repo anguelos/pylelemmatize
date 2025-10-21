@@ -1,41 +1,67 @@
 from collections import defaultdict
+import random
 import sys
 from typing import Dict, Optional, Union, Tuple, List
 import re
+import unicodedata
 import numpy as np
 from math import inf
 
+import torch
+import tqdm
 
-def pagexml_to_text(pagexml: str) -> str:
-    """Convert PAGE XML to plain text.
+from pylelemmatize.fast_mapper import LemmatizerBMP
+from .abstract_mapper import AbstractLemmatizer, fast_str_to_numpy
+from lxml import etree
+from .mapper_ds import MapperDs
 
-    Args:
-        pagexml (str): The PAGE XML content as a string.
+def pagexml_to_text(pagexml_path: str) -> str:
+    """
+    Converts a PAGE XML string to plain text.
+
+    Parameters:
+    pagexml (str): The PAGE XML content as a string.
 
     Returns:
-        str: The extracted plain text.
+    str: The extracted plain text.
     """
-    from lxml import etree
+    pagexml = open(pagexml_path, "r").read()
+    xml_bytes = pagexml.encode("utf-8")
+    root = etree.fromstring(xml_bytes)
+    texts = []
+    for unicode_text in root.xpath(".//*[local-name()='Unicode']"):
+        texts.append(unicode_text.text or "")
+    return "\n".join(texts)
 
-    #root = etree.fromstring(pagexml)
-    #texts = []
 
-    # Iterate through all TextLine elements and extract their text
-    #for text_line in root.findall('TextLine'):
-    #    print(text_line, file=sys.stderr)
-    #    line_text = text_line.find('.//{http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15}Unicode')
-    #    if line_text is not None and line_text.text:
-    #        texts.append(line_text.text)
-    texts = re.findall(r"<Unicode>(.*?)</Unicode>", pagexml, re.DOTALL)
-    res = '\n'.join(texts)
-    #print(f"Extracted {len(res)} characters from PAGE XML original size: {len(pagexml)}", file=sys.stderr)
+def get_textlines(filepath: str, assume_txt=False, strip_empty_lines=True) -> List[str]:
+    if filepath.lower().endswith(".xml") or filepath.lower().endswith(".pagexml"):
+        res = pagexml_to_text(filepath).split("\n")
+    elif filepath.lower().endswith(".txt") or assume_txt:
+        res = open(filepath, "r").read().split("\n")
+    else:
+        raise f"Can't open {filepath}"
+    if strip_empty_lines:
+        res = [line for line in res if len(line)]
+    res = [unicodedata.normalize("NFC", s) for s in res]
     return res
 
 
+def load_textline_pairs(filelist1: List[str], filelist2: List[str]) -> List[Tuple[str, str]]:
+    assert len(filelist1) == len(filelist2)
+    res = []
+    for file1, file2 in zip(sorted(filelist1), sorted(filelist2)):
+        lines1 = get_textlines(file1)
+        lines2 = get_textlines(file2)
+        if len(lines1) == len(lines2):
+            for line1, line2 in zip(lines1, lines2):
+                res.append((line1, line2))
+        else:
+            print(f"Unaligned {file1} {file2} with {len(lines1)} vs {len(lines2)} lines", file=sys.stderr)
+    return res
 
 
-
-def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int) -> List[Tuple[int, int]]:
+def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int) -> np.ndarray:
     """
     Banded dynamic-programming alignment (edit distance with unit costs).
     
@@ -45,7 +71,7 @@ def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int) -> List[Tuple[int,
         band: non-negative int, maximum |i - j| misalignment allowed
     
     Returns:
-        path: list of (i, j) coordinates from (0,0) to (m,n) inclusive,
+        path: A numpy array of (i, j) coordinates from (0,0) to (m,n) inclusive,
               following the optimal (minimal-cost) path within the band.
     
     Raises:
@@ -155,56 +181,141 @@ def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int) -> List[Tuple[int,
             i, j = i, j - 1
         else:
             raise RuntimeError("Invalid backpointer during traceback.")
-
     path.reverse()
-    return path
+    return np.array(path)
 
 
+def unaligned_to_seq2seq2(src: str, dst: str, band=50) -> np.ndarray:
+    #src='pħo đ pagano. tͥ Dopno Romano monacho sce̾ Marie đ cͥpta ⁊ ꝓposito monast'
+    #dst='Philippo de Pagano tibi Dopno Romano monacho Sancte Marie de Cripta et proposito monast'
+
+    path = banded_edit_path(fast_str_to_numpy(src), fast_str_to_numpy(dst), band=band)
+    src+="@$"
+    dst+="@$"
+    src_pos = 0
+    dst_pos = 0
+    pairs = []
+    #print(f"Path: {path.T}")
+    for src_path, dst_path in path:
+        #src_path = int(path[src_pos, 0] if src_pos < len(src) else -1)
+        #dst_path = int(path[dst_pos, 1] if dst_pos < len(dst) else -1)
+        src_move = src_path != (path[src_pos + 1, 0] if src_pos + 1 < len(path) else -1)
+        dst_move = dst_path != (path[dst_pos + 1, 1] if dst_pos + 1 < len(path) else -1)
+        if src_move and dst_move:
+            pairs.append((src[src_path], dst[dst_path]))
+            src_pos += 1
+            dst_pos += 1
+        elif src_move and not dst_move:
+            pairs.append((src[src_path], ""))
+            src_pos += 1
+            dst_pos += 1
+        elif not src_move and dst_move:
+            if(len(pairs) == 0):
+                pairs.append((src[0], dst[0]))
+            else:
+                pairs[-1] = (pairs[-1][0], pairs[-1][1] + dst[dst_path])
+            dst_pos += 1
+            src_pos += 1
+        else:
+            raise RuntimeError("Stuck")
+    return pairs[:-1]
+
+
+
+class ManyToMoreDs:
+    def __init__(self, line_pairs: List[Tuple[str, str]], aligned_line_segment_pairs: Optional[List[List[Tuple[str, str]]]], max_target_lengths: Optional[List[int]], band: int=70):
+        self.line_pairs = line_pairs
+        self.band = band
+        self.max_target_length = max(len(out) for _, out in line_pairs)
+        input_alphabet = sorted(set(''.join(inp for inp, _ in line_pairs)))
+        output_alphabet = sorted(set(''.join(out for _, out in line_pairs)))
+        self.input_mapper = LemmatizerBMP.from_alphabet_mapping(input_alphabet)
+        self.output_mapper = LemmatizerBMP.from_alphabet_mapping(output_alphabet)
+        self.aligned_line_segment_pairs = []
+        self.max_target_lengths = []
+        if aligned_line_segment_pairs is None or max_target_lengths is None:
+            aligned_line_segment_pairs = []
+            max_target_lengths = []
+            for inp, out in tqdm.tqdm(line_pairs):
+                aligned_line_segment_pairs.append(unaligned_to_seq2seq2(inp, out, band))
+                max_target_lengths.append(max(len(t) for _, t in aligned_line_segment_pairs[-1]))
+        self.aligned_line_segment_pairs = aligned_line_segment_pairs
+        self.max_target_lengths = max_target_lengths
+
+    def __init__(self, line_pairs: List[Tuple[str, str]], band=70, onehot: bool=False):
+        self.line_pairs = line_pairs
+        self.band = band
+        self.max_target_length = max(len(out) for _, out in line_pairs)
+        input_alphabet = sorted(set(''.join(inp for inp, _ in line_pairs)))
+        output_alphabet = sorted(set(''.join(out for _, out in line_pairs)))
+        self.input_mapper = LemmatizerBMP.from_alphabet_mapping(input_alphabet)
+        self.output_mapper = LemmatizerBMP.from_alphabet_mapping(output_alphabet)
+        self.aligned_line_segment_pairs = []
+        self.max_target_lengths = []
+        self.onehot = onehot
+        for inp, out in tqdm.tqdm(line_pairs):
+            self.aligned_line_segment_pairs.append(unaligned_to_seq2seq2(inp, out, band))
+            self.max_target_lengths.append(max(len(t) for _, t in self.aligned_line_segment_pairs[-1]))
+
+    def __len__(self):
+        return len(self.line_pairs)
+
+    def getitem_onehot(self, idx: int) -> Tuple[str, str]:
+        max_target_length = self.max_target_lengths[idx]
+        inp, out = self.line_pairs[idx]
+        if self.onehot:
+            inp = MapperDs.onehot_encode(inp, len(self.input_mapper)+1)
+            out = MapperDs.onehot_encode(out, len(self.input_mapper)+1)
+        return inp, out
+    
+
+    def partition(self, frac: float) -> Tuple['ManyToMoreDs', 'ManyToMoreDs']:
+        assert 0.0 < frac < 1.0
+        cut = int(len(self) * frac)
+        ds1 = ManyToMoreDs(self.line_pairs[:cut], self.aligned_line_segment_pairs[:cut], self.max_target_lengths[:cut], self.band)
+        ds2 = ManyToMoreDs(self.line_pairs[cut:], self.aligned_line_segment_pairs[cut:], self.max_target_lengths[cut:], self.band)
+        return ds1, ds2
+
+    def shuffled(self, seed: Optional[int]=None) -> 'ManyToMoreDs':
+        combined = list(zip(self.line_pairs, self.aligned_line_segment_pairs, self.max_target_lengths))
+        if seed is not None:
+            random.seed(seed)
+        random.shuffle(combined)
+        line_pairs, aligned_line_segment_pairs, max_target_lengths = zip(*combined)
+        return ManyToMoreDs(line_pairs, aligned_line_segment_pairs, max_target_lengths, self.band)
+
+    def __str__(self):
+        res = f"ManyToMoreDs with {len(self)} items\n"
+        res += f"  band={self.band}\n"
+        res += f"  max_target_length={self.max_target_length}\n"
+        res += f"  input_alphabet ({len(self.input_alphabet)}): {''.join(self.input_alphabet)}\n"
+        res += f"  output_alphabet ({len(self.output_alphabet)}): {''.join(self.output_alphabet)}\n"
+        return res
+    
+    def save(self, path):
+        with open(path, 'wb') as f:
+            torch.save([self.line_pairs, self.aligned_line_segment_pairs, self.max_target_lengths, self.band], f)
+
+    @staticmethod
+    def load(path):
+        if Path(path).is_file() is False:
+            return None
+        else:
+            with open(path, 'rb') as f:
+                line_pairs, aligned_line_segment_pairs, max_target_lengths, band = torch.load(f)
+            return ManyToMoreDs(line_pairs, aligned_line_segment_pairs, max_target_lengths, band)
 
 
 def many_to_more_main():
-    import fargv
-    def generate_pairs(pagexml_files, replace_names: Optional[Union[Tuple[str, str], Dict[str, str]]] = ("Abreviated", "Long")):
-        pagexml_files = sorted(pagexml_files)
-        by_filename = defaultdict(dict)
-        for pagexml_file in pagexml_files:
-            path_pieces = pagexml_file.split('/')
-            by_filename[path_pieces[-1]][path_pieces[-2]] = pagexml_to_text(open(pagexml_file, 'r').read())
-
-        #print(f"by_filename: {repr(by_filename)}", file=sys.stderr)
-        categories_names = sorted(set([tuple(d.keys()) for d in by_filename.values()]))
-        assert len(categories_names) == 1
-        assert len(list(categories_names)[0]) == 2
-        if replace_names is not None:
-            if isinstance(replace_names, tuple):
-                replace_names = {list(categories_names)[0][0]: replace_names[0], list(categories_names)[0][1]: replace_names[1]}
-            assert sorted(replace_names.keys()) == sorted(list(categories_names[0]))
-            new_by_filename = {}
-            for document_id, category_to_content in by_filename.items():
-                print(f"Category to content: {(category_to_content.keys())}", file=sys.stderr)
-                new_by_filename[document_id] = {replace_names[k]: v for k, v in category_to_content.items()}
-        new_by_filename = by_filename
-        for document_id, category_to_content in new_by_filename.items():
-            assert len(category_to_content) == 2
-            yield (category_to_content[list(category_to_content.keys())[0]], category_to_content[list(category_to_content.keys())[1]])
-
-    p = { "pagexml_files": set() }
+    import fargv, glob
+    p = {
+        "inputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/abreviated/B*.xml")),
+        "outputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/unabreviated/B*.xml")),
+        "dataset_path": "many_to_more_ds.pt",
+        "band": 70,
+    }
     args, _ = fargv.fargv(p)
-    res = []
-    line_counter = 0
-    all1 = []
-    all2 = []
-    for alligned1, aligned2 in generate_pairs(args.pagexml_files):
-        lines1 = alligned1.split('\n')
-        lines2 = aligned2.split('\n')
-        assert len(lines1) == len(lines2)
-        for l1, l2 in zip(lines1, lines2):
-            all1.append(l1)
-            all2.append(l2)
-            res.append(f"{line_counter}\t{l1}\t{l2}")
-            line_counter += 1
-    print('\n'.join(res))
-    alphabet1 = sorted(set(''.join(all1)))
-    alphabet2 = sorted(set(''.join(all2)))
-    print(f"# Abreviated Alphabet 1 ({len(alphabet1)}): {''.join(alphabet1)}")
-    print(f"# Unabreviated Alphabet 2 ({len(alphabet2)}): {''.join(alphabet2)}")
+    dataset = ManyToMoreDs.load(args.dataset_path)
+    if dataset is None:
+        line_pairs = load_textline_pairs(sorted(args.inputs), sorted(args.outputs))
+    dataset = ManyToMoreDs(line_pairs, band=args.band)
