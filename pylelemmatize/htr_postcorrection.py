@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 
 def main_train_substitution_only_postcorrection(argv=sys.argv, **kwargs: Dict[str, Any]):
+    """Train a substitution-only HTR postcorrection model using LSTM."""
     import torch 
     import fargv
     from pathlib import Path
@@ -182,3 +183,58 @@ def main_postcorrection_infer():
     if args.verbose:
         progress.close()
     output_fd.flush()
+
+
+def main_create_postcorrection_tsv():
+    """creates a TSV where on substitutions are considered erros to train delemmatiser from arbitrary prediction-target pairs
+    """
+    import fargv
+    import sys
+    p={
+        "ocr_prediction_target_tsv":"",
+        "substion_only_tsv":"",
+        "allow_overwrite": False,
+        "min_line_length": 50,
+        "max_edit_distance_tolerated": .2,
+        "verbose": False,
+    }
+    args, _ = fargv.fargv(p)
+    if args.ocr_prediction_target_tsv == "":
+        input_fd = sys.stdin
+    else:
+        input_fd = open( args.ocr_prediction_target_tsv, "r")
+
+    if args.substion_only_tsv == "":
+        output_fd = sys.stdout
+    else:
+        if not Path(args.substion_only_tsv).exists() or args.allow_overwrite:
+            output_fd = open( args.substion_only_tsv, "w")
+        else:
+            raise IOError(f" Could not write to {args.substion_only_tsv}")
+    rejected = 0
+    all_accepted = []
+    for input_line in input_fd.readlines():
+        input_line = input_line.strip().split("\t")
+        if len(input_line) == 2 and len(input_line[1]) >= args.min_line_length:
+            all_accepted.append(input_line)
+        else:
+            rejected+=1
+    alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in all_accepted]))))
+    conf_acc = np.zeros([len(alphabet)+1, len(alphabet)+1])
+    all_dist = 0
+    for pred, gt in all_accepted:
+        dist, conf, labels, no_sub = edit_distance_with_confusion(pred, gt, alphabet)
+        all_dist+= dist
+        conf_acc += conf
+        if len(no_sub) != len(gt):
+            raise ValueError(f" Length mismatch after substitution-only processing\nPred: {pred}\nGT: {gt}\nNoSub: {no_sub}")
+        if (dist / len(gt)) > args.max_edit_distance_tolerated:
+            rejected += 1
+        else:
+            print(f"{no_sub}\t{gt}", file=output_fd)
+    output_fd.flush()
+    if args.verbose:
+        print(f"Read {rejected + len(all_accepted)} lines, kept {len(all_accepted)}, rejected {rejected} lines", file=sys.stderr)
+        print(f"Observed alphabet: {repr(alphabet)}", file=sys.stderr)
+
+

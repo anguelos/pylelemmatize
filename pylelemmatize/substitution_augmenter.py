@@ -1,328 +1,380 @@
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 import numpy as np
+from .fast_mapper import LemmatizerBMP
+import pickle
 
 
-class SubstitutionMutator:
-    """
-    Distort integer labels y according to a target confusion-frequency matrix cm.
-    Each row i of cm defines P(pred=j | true=i) after row-normalization.
+# def edit_distance(s1: np.ndarray, s2: np.ndarray) -> Tuple[int, np.ndarray]:
+#     """
+#     Compute Levenshtein edit distance between two sequences s1 and s2.
+#     Also returns the DP matrix used to compute the distance.
+#     Retursns
+#     -------
+#     distance : int
+#         The Levenshtein edit distance between s1 and s2.
+#     dp : np.ndarray
+#         The DP matrix used to compute the distance.
+#     """
+#     n, m = len(s1), len(s2)
+#     dp = np.zeros((n + 1, m + 1), dtype=int)
+#     for i in range(n + 1):
+#         dp[i, 0] = i
+#     for j in range(m + 1):
+#         dp[0, j] = j
+#     for i in range(1, n + 1):
+#         for j in range(1, m + 1):
+#             cost_sub = 0 if s1[i - 1] == s2[j - 1] else 1
+#             diag = dp[i - 1, j - 1] + cost_sub
+#             up = dp[i - 1, j] + 1
+#             left = dp[i, j - 1] + 1
+#             dp[i, j] = min(diag, up, left)
+#     distance = dp[n, m]
+#     return distance, dp
 
-    Also provides a static method to compute a confusion matrix from two label arrays.
-    """
 
-    def __init__(self, cm: np.ndarray, random_state: int | np.random.Generator | None = None):
-        if cm.ndim != 2 or cm.shape[0] != cm.shape[1]:
-            raise ValueError("cm must be a square 2D array (K x K).")
-        self.K = cm.shape[0]
+# def substitution_only_input(input_seq: np.ndarray, gt_seq: np.ndarray, dp: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+#     """
+#     Given the edit distance DP matrix, backtrace to find the optimal path,
+#     and create a version of input_seq where only substitutions are realized.
+#     Returns
+#     -------
+#     path : np.ndarray
+#         The optimal alignment path.
+#     operation_type : np.ndarray
+#         The types of operations for each step in the path.
+#     gt_sub_input : np.ndarray
+#         The ground truth input sequence after applying substitutions.
+#     cm : np.ndarray
+#         The confusion matrix for the substitutions.
+#     """
+#     cm = np.zeros((5, 5)), dtype=np.int32)
+#     inp_idx = len(input_seq)
+#     gt_idx = len(gt_seq)
+#     res = []
+#     path = []
+#     operation_type = []
+#     gt_sub_input = []
 
-        cm = np.asarray(cm, dtype=float)
-        row_sums = cm.sum(axis=1, keepdims=True)
-        probs = np.zeros_like(cm, dtype=float)
-        nz = row_sums[:, 0] > 0
-        probs[nz] = cm[nz] / row_sums[nz]
-        if np.any(~nz):
-            i0 = np.where(~nz)[0]
-            probs[i0, i0] = 1.0
+#     while inp_idx > 0 and gt_idx > 0:
+#         choice = ((dp[inp_idx - 1, gt_idx - 1], (-1, -1), 0), (dp[inp_idx - 1, gt_idx], (-1, 0), 2), (dp[inp_idx, gt_idx - 1], (0, -1), 3))
+#         _, (di, dj), op_type = min(choice, key=lambda x: x[0])
+#         inp_idx += di
+#         gt_idx += dj
+#         path.append((inp_idx, gt_idx))
+        
+#         if op_type == 0:
+#             gt_sub_input.append(input_seq[inp_idx])
+#             op_type = 0 if input_seq[inp_idx] == gt_seq[gt_idx] else 1
+#             cm[input_seq[inp_idx], gt_seq[gt_idx]] += 1
+#         elif op_type == 3:
+#             gt_sub_input.append(gt_seq[gt_idx])
+#             cm[0, gt_seq[gt_idx]] += 1
+#         elif op_type == 2:
+#             cm[input_seq[inp_idx], 0] += 1
+#         operation_type.append(op_type)
+    
+#     while gt_idx > 0:
+#         gt_idx -= 1
+#         path.append((inp_idx, gt_idx))
+#         operation_type.append(3)
+#         gt_sub_input.append(gt_seq[gt_idx])
+#         cm[0, gt_seq[gt_idx]] += 1
 
-        cdf = np.cumsum(probs, axis=1)
-        cdf[:, -1] = 1.0
+#     while inp_idx > 0:
+#         inp_idx -= 1
+#         path.append((inp_idx, gt_idx))
+#         operation_type.append(2)
+#         gt_sub_input.append(input_seq[inp_idx])
+#         cm[input_seq[inp_idx], 0] += 1
 
-        self.probs = probs
-        self.cdf = cdf
+#     return np.array(path)[:,::-1], np.array(operation_type)[::-1], np.array(gt_sub_input[::-1]), cm
 
-        if isinstance(random_state, np.random.Generator):
-            self.rng = random_state
-        else:
-            self.rng = np.random.default_rng(random_state)
 
-    def distort(self, y: np.ndarray) -> np.ndarray:
-        """Return a noisy version of y drawn according to the confusion model."""
-        y = np.asarray(y)
-        if y.ndim != 1:
-            raise ValueError("y must be a 1D integer array.")
-        if (y < 0).any() or (y >= self.K).any():
-            raise ValueError("labels in y must be in [0, K-1].")
 
-        N = y.size
-        if N == 0:
-            return y.copy()
-
-        cdf_rows = self.cdf[y]
-        u = self.rng.random(N)
-        y_noisy = (u[:, None] <= cdf_rows).argmax(axis=1).astype(int)
-        return y_noisy
-
-    # --- NEW STATIC METHOD ---
+class CharConfusionMatrix:
     @staticmethod
-    def compute_confusion(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int | None = None) -> np.ndarray:
+    def edit_distance(s1: np.ndarray, s2: np.ndarray) -> Tuple[int, np.ndarray]:
         """
-        Compute a confusion matrix from two integer label arrays.
-
-        Parameters
-        ----------
-        y_true : np.ndarray of shape (N,)
-            True class labels.
-        y_pred : np.ndarray of shape (N,)
-            Predicted (or distorted) labels.
-        num_classes : int | None
-            Total number of classes. If None, inferred from max value in both arrays.
-
+        Compute Levenshtein edit distance between two sequences s1 and s2.
+        Also returns the DP matrix used to compute the distance.
         Returns
         -------
-        cm : np.ndarray of shape (K, K)
-            Confusion frequency matrix where cm[i, j] counts how many times
-            true class i was predicted as class j.
+        distance : int
+            The Levenshtein edit distance between s1 and s2.
+        dp : np.ndarray
+            The DP matrix used to compute the distance.
         """
-        y_true = np.asarray(y_true, dtype=int)
-        y_pred = np.asarray(y_pred, dtype=int)
-        if y_true.shape != y_pred.shape:
-            raise ValueError("y_true and y_pred must have the same shape")
-
-        if num_classes is None:
-            num_classes = max(y_true.max(), y_pred.max()) + 1
-
-        if (y_true < 0).any() or (y_pred < 0).any():
-            raise ValueError("Labels must be nonnegative integers")
-
-        # Flatten indices to 1D and accumulate counts efficiently
-        cm = np.bincount(
-            num_classes * y_true + y_pred,
-            minlength=num_classes ** 2
-        ).reshape(num_classes, num_classes)
-        return cm
+        n, m = len(s1), len(s2)
+        dp = np.zeros((n + 1, m + 1), dtype=int)
+        for i in range(n + 1):
+            dp[i, 0] = i
+        for j in range(m + 1):
+            dp[0, j] = j
+        for i in range(1, n + 1):
+            for j in range(1, m + 1):
+                cost_sub = 0 if s1[i - 1] == s2[j - 1] else 1
+                diag = dp[i - 1, j - 1] + cost_sub
+                up = dp[i - 1, j] + 1
+                left = dp[i, j - 1] + 1
+                dp[i, j] = min(diag, up, left)
+        distance = dp[n, m]
+        return distance, dp
 
 
-class SubstitutionAugmenter(SubstitutionMutator):
-    @staticmethod
+    def backtrace_ed_matrix(self, input_seq: np.ndarray, gt_seq: np.ndarray, dp: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Given the edit distance DP matrix, backtrace to find the optimal path,
+        and create a version of input_seq where only substitutions are realized.
+        Returns
+        -------
+        path : np.ndarray
+            The optimal alignment path.
+        operation_type : np.ndarray
+            The types of operations for each step in the path.
+        gt_sub_input : np.ndarray
+            The ground truth input sequence after applying substitutions.
+        cm : np.ndarray
+            The confusion matrix for the substitutions.
+     """
+        cm = np.zeros((len(self.alphabet), len(self.alphabet)), dtype=np.int32)
+        inp_idx = len(input_seq)
+        gt_idx = len(gt_seq)
+        path = []
+        operation_type = []
+        gt_sub_input = []
 
-    @staticmethod
-    def mappingdict_to_nparrays(alphabet_mapper: Dict[str, int], max_ord: int=-1) -> np.ndarray:
-        np_symbols = len(alphabet_mapper)
-        dense_to_sparse = np.zeros((np_symbols,), dtype=np.int32)
-        if max_ord == -1:
-            max_ord = max([ord(symbol) for symbol in alphabet_mapper.keys()])
-        sparse_to_dense = np.zeros(max_ord + 1, dtype=np.int32)
-        for symbol, dense_idx in alphabet_mapper.items():
-            sparse_idx = ord(symbol)
-            dense_to_sparse[dense_idx] = sparse_idx
-            sparse_to_dense[sparse_idx] = dense_idx
-        return dense_to_sparse, sparse_to_dense
+        while inp_idx > 0 and gt_idx > 0:
+            choice = ((dp[inp_idx - 1, gt_idx - 1]-.00001, (-1, -1), 0), 
+                      (dp[inp_idx - 1, gt_idx], (-1, 0), 2), 
+                      (dp[inp_idx, gt_idx - 1], (0, -1), 3))
 
-    def __init__(self, parallel_corpus: List[Tuple[str, str]], alphabet_str = "", random_state: int | np.random.Generator | None = None):
-        dense_to_sparse, sparse_to_dense = self.mappingdict_to_nparrays(alphabet_str = alphabet_str)
-        self.parallel_corpus = parallel_corpus
-        if isinstance(random_state, np.random.Generator):
-            self.rng = random_state
-        else:
-            self.rng = np.random.default_rng(random_state)
+            _, (di, dj), op_type = min(choice, key=lambda x: x[0])
+            inp_idx += di
+            gt_idx += dj
+            path.append((inp_idx, gt_idx))
+            
+            if op_type == 0:
+                gt_sub_input.append(input_seq[inp_idx])
+                op_type = 0 if input_seq[inp_idx] == gt_seq[gt_idx] else 1
+                cm[input_seq[inp_idx], gt_seq[gt_idx]] += 1
+            elif op_type == 3:  # Insertion
+                gt_sub_input.append(gt_seq[gt_idx])
+                cm[0, gt_seq[gt_idx]] += 1
+            elif op_type == 2:  # Deletion
+                cm[input_seq[inp_idx], 0] += 1
+            operation_type.append(op_type)
+        
+        while gt_idx > 0:
+            gt_idx -= 1
+            path.append((inp_idx, gt_idx))
+            operation_type.append(3)
+            gt_sub_input.append(gt_seq[gt_idx])
+            cm[0, gt_seq[gt_idx]] += 1
+
+        while inp_idx > 0:
+            inp_idx -= 1
+            path.append((inp_idx, gt_idx))
+            operation_type.append(2)
+            cm[input_seq[inp_idx], 0] += 1
+        return np.array(path)[::-1, :], np.array(operation_type)[::-1], np.array(gt_sub_input[::-1]), cm
 
 
-    def augment(self, word: str) -> str:
-        num_distortions = self.sample_distortion()
-        word_chars = list(word)
-        for _ in range(num_distortions):
-            if len(word_chars) == 0:
-                break
-            pos = np.random.randint(0, len(word_chars))
-            del word_chars[pos]
-        return "".join(word_chars)
+    def ingest_textline_observation(self, pred_line: str, gt_line: str) -> str:
+        """
+        Ingest a pair of predicted and textlines.
+        Updates the confusion matrix with the observations from the edit distance.
+        Returns the input line after applying only the non-substitution operations
+        thus aligning it to the ground truth.
+        -------
+        pred_line : str
+            The predicted text line.
+        gt_line : str
+            The ground truth text line.
+        Returns
+        -------
+        str
+            The input line after applying only the non-substitution operations.
+        """
+        dense_pred = self.alphabet.str_to_intlabel_seq(pred_line)
+        dense_gt = self.alphabet.str_to_intlabel_seq(gt_line)
+        distance, dp = self.edit_distance(dense_pred, dense_gt)
+        _, _, gt_sub_input, cm = self.backtrace_ed_matrix(dense_pred, dense_gt, dp)
+        self.cm += cm
+        return self.alphabet.intlabel_seq_to_str(gt_sub_input)
     
 
-# if __name__ == "__main__":
-#     cm_true = np.array([
-#         [90,  5,  5],
-#         [10, 80, 10],
-#         [ 3, 3, 94]
-#     ], dtype=int)
+    def save(self, file_path: Union[str, Path]):
+        pickle.dump([self.alphabet.dst_alphabet_str, self.cm], open(file_path, "wb"))
     
-#     y = np.random.choice(3, 1000000, p=[0.7, 0.25, 0.05])
-#     noiser = SubstitutionMutator(cm_true, random_state=0)
-#     y_noisy = noiser.distort(y)
+    @staticmethod
+    def load(file_path: Union[str, Path]) -> "CharConfusionMatrix":
+        dst_alphabet_str, cm = pickle.load(open(file_path, "rb"))
+        lemmatizer = LemmatizerBMP.from_alphabet_mapping(dst_alphabet_str, dst_alphabet_str)
+        char_cm = CharConfusionMatrix(lemmatizer)
+        char_cm.cm = cm
+        return char_cm
 
-#     cm_est = SubstitutionMutator.compute_confusion(y, y_noisy)
-#     print("Estimated confusion:\n", cm_est)
-#     print("Row-normalized:\n", cm_est / cm_est.sum(axis=1, keepdims=True))
+    # def edit_distance_with_confusion(
+    #     self,
+    #     s1: str,
+    #     s2: str,
+    #     distance_only: bool = False,
+    # ) -> Tuple[int, Union[np.ndarray, None], Union[str, None]]:
+    #     """
+    #     Compute Levenshtein edit distance and a confusion matrix (with a null class).
+    #     Also return a version of s1 where we apply only the non-substitution ops from
+    #     the optimal path: insertions and deletions are realized, substitutions are NOT
+    #     realized (the original s1 symbol is kept).
 
+    #     Returns
+    #     -------
+    #     distance : int
+    #     confusion : np.ndarray (K+1, K+1)
+    #     labels : np.ndarray (K+1,)
+    #     s1_no_subst : str
+    #         s1 after applying only insertions/deletions from the optimal alignment;
+    #         substitutions are ignored (keep the s1 symbol).
+    #     """
+    #     # Validate alphabet uniqueness & contents
+    #     #alpha_list = list(alphabet)
 
-from typing import Tuple, List
-import numpy as np
+    #     # Labels and indices
+    #     #labels: List[str] = alpha_list + [null_symbol]
+    #     #label_to_idx = {ch: i for i, ch in enumerate(labels)}
+    #     null_idx = 0 #label_to_idx[null_symbol]
 
-def edit_distance_with_confusion(
-    s1: str,
-    s2: str,
-    alphabet: str,
-    null_symbol: str = "∅",
-) -> Tuple[int, np.ndarray, np.ndarray, str]:
-    """
-    Compute Levenshtein edit distance and a confusion matrix (with a null class).
-    Also return a version of s1 where we apply only the non-substitution ops from
-    the optimal path: insertions and deletions are realized, substitutions are NOT
-    realized (the original s1 symbol is kept).
+    #     dense_s1 = self.alphabet.str_to_intlabel_seq(s1)
+    #     dense_s2 = self.alphabet.str_to_intlabel_seq(s2)
 
-    Returns
-    -------
-    distance : int
-    confusion : np.ndarray (K+1, K+1)
-    labels : np.ndarray (K+1,)
-    s1_no_subst : str
-        s1 after applying only insertions/deletions from the optimal alignment;
-        substitutions are ignored (keep the s1 symbol).
-    """
-    # Validate alphabet uniqueness & contents
-    alpha_list = list(alphabet)
-    if len(set(alpha_list)) != len(alpha_list):
-        raise ValueError("Alphabet contains duplicate symbols.")
-    if null_symbol in alpha_list:
-        raise ValueError(f"null_symbol '{null_symbol}' must not be in the alphabet.")
+    #     #n, m = len(s1), len(s2)
 
-    # Validate strings
-    bad_s1 = {ch for ch in s1 if ch not in alpha_list}
-    bad_s2 = {ch for ch in s2 if ch not in alpha_list}
-    if bad_s1 or bad_s2:
-        raise ValueError(
-            "Input strings contain symbols not in the alphabet. "
-            f"Bad in s1: {sorted(bad_s1)}; Bad in s2: {sorted(bad_s2)}"
-        )
-
-    # Labels and indices
-    labels: List[str] = alpha_list + [null_symbol]
-    label_to_idx = {ch: i for i, ch in enumerate(labels)}
-    null_idx = label_to_idx[null_symbol]
-
-    n, m = len(s1), len(s2)
-
-    # DP + backpointers
-    dp = np.zeros((n + 1, m + 1), dtype=int)
-    back = np.empty((n + 1, m + 1), dtype=np.int8)  # 0=start, 1=diag, 2=up(del), 3=left(ins)
-
-    for i in range(1, n + 1):
-        dp[i, 0] = i
-        back[i, 0] = 2
-    for j in range(1, m + 1):
-        dp[0, j] = j
-        back[0, j] = 3
-    back[0, 0] = 0
-
-    for i in range(1, n + 1):
-        s1c = s1[i - 1]
-        for j in range(1, m + 1):
-            s2c = s2[j - 1]
-            cost_sub = 0 if s1c == s2c else 1
-            diag = dp[i - 1, j - 1] + cost_sub
-            up = dp[i - 1, j] + 1
-            left = dp[i, j - 1] + 1
-            best = min(diag, up, left)
-            dp[i, j] = best
-            if best == diag:
-                back[i, j] = 1
-            elif best == up:
-                back[i, j] = 2
-            else:
-                back[i, j] = 3
-
-    distance = int(dp[n, m])
-
-    # Backtrace: fill confusion and build the "no-substitution-realization" string
-    K = len(labels)
-    confusion = np.zeros((K, K), dtype=int)
-
-    i, j = n, m
-    out_chars_rev: List[str] = []
-
-    while not (i == 0 and j == 0):
-        move = back[i, j]
-        if move == 1:  # diag: match or substitution
-            src = s1[i - 1]
-            tgt = s2[j - 1]
-            confusion[label_to_idx[src], label_to_idx[tgt]] += 1
-            # KEY DIFFERENCE:
-            # - If it's a match, appending src or tgt is identical.
-            # - If it's a substitution, we DO NOT realize it; keep the source char.
-            out_chars_rev.append(src)
-            i -= 1
-            j -= 1
-        elif move == 2:  # deletion (src->null): remove src from output
-            src = s1[i - 1]
-            confusion[label_to_idx[src], null_idx] += 1
-            # deletion => emit nothing
-            i -= 1
-        else:  # insertion (null->tgt): insert tgt into output
-            tgt = s2[j - 1]
-            confusion[null_idx, label_to_idx[tgt]] += 1
-            out_chars_rev.append(tgt)
-            j -= 1
-    s1_no_subst = "".join(reversed(out_chars_rev))
-    return distance, confusion, np.array(labels), s1_no_subst
+    #     # DP + backpointers
+    #     dp = np.zeros((dense_s1.size + 1, dense_s2.size + 1), dtype=int)
+    #     back = np.empty((dense_s1.size + 1, dense_s2.size + 1), dtype=np.int8)  # 0=start, 1=diag, 2=up(del), 3=left(ins)
+    #     back_up_del = 2
+    #     back_left_ins = 3
+    #     back_diag = 1
+    #     back_start = 0
 
 
-def create_substitutiononly_parallel_corpus(textlines: List[Tuple[str, str]]):
-    alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in textlines]))))
-    # Create a list to hold the modified text lines
-    modified_lines = []
-    for prediction, groundtruth in textlines:
-        # Call the edit_distance_with_confusion function
-        dist, conf, labels, no_sub = edit_distance_with_confusion(prediction, groundtruth, alphabet)
-        # Append the no_substitution version of s1 to the modified lines
-        modified_lines.append((no_sub, groundtruth))
-    return modified_lines
+    #     for i in range(1, dense_s1.size + 1):
+    #         dp[i, 0] = i
+    #         back[i, 0] = back_up_del
+    #     for j in range(1, dense_s2.size + 1):
+    #         dp[0, j] = j
+    #         back[0, j] = back_left_ins
+    #     back[0, 0] = back_start
+
+    #     for i in range(1, dense_s1.size + 1):
+    #         s1c = dense_s1[i - 1]
+    #         for j in range(1, dense_s2.size + 1):
+    #             s2c = dense_s2[j - 1]
+    #             cost_sub = 0 if s1c == s2c else 1
+    #             diag = dp[i - 1, j - 1] + cost_sub
+    #             up = dp[i - 1, j] + 1
+    #             left = dp[i, j - 1] + 1
+    #             best = min(diag, up, left)
+    #             dp[i, j] = best
+    #             if best == diag:
+    #                 back[i, j] = back_diag
+    #             elif best == up:
+    #                 back[i, j] = back_up_del
+    #             else:
+    #                 back[i, j] = back_left_ins
+
+    #     distance = int(dp[dense_s1.size, dense_s2.size])
+    #     if distance_only:
+    #         return distance, None, None
+
+    #     # Backtrace: fill confusion and build the "no-substitution-realization" string
+    #     #K = self.alphabet.size
+    #     confusion = np.zeros((len(self.alphabet), len(self.alphabet)), dtype=int)
+
+    #     i, j = dense_s1.size, dense_s2.size
+    #     sub_only_rev: List[str] = []
+
+    #     dbg = []
+
+    #     while not (i == 0 and j == 0):
+    #         move = back[i, j]
+    #         if move == 1:  # diag: match or substitution
+    #             src = dense_s1[i - 1]
+    #             tgt = dense_s2[j - 1]
+    #             confusion[src, tgt] += 1
+    #             # KEY DIFFERENCE:
+    #             # - If it's a match, appending src or tgt is identical.
+    #             # - If it's a substitution, we DO NOT realize it; keep the source char.
+    #             sub_only_rev.append(src)
+    #             dbg.append(f"S: move{move}: src:{'0ACGT'[src]}->tgt:{'0ACGT'[tgt]}")
+    #             i -= 1
+    #             j -= 1
+    #         elif move == 2:  # deletion (src->null): remove src from output
+    #             src = dense_s1[i - 1]
+    #             confusion[src, null_idx] += 1
+    #             # deletion => emit nothing
+    #             i -= 1
+    #         else:  # insertion (null->tgt): insert tgt into output
+    #             tgt = dense_s2[j - 1]
+    #             confusion[null_idx, tgt] += 1
+    #             sub_only_rev.append(tgt)
+    #             j -= 1
+    #             dbg.append(f"I: move{move}: src: ->tgt:{'0ACGT'[tgt]}")
+    #     sub_only = np.array(sub_only_rev)[::-1]
+    #     s1_no_subst =  self.alphabet.intlabel_seq_to_str(sub_only)
+    #     print("Debug alignment trace:", file=sys.stderr)
+    #     print(f"Pred: {s1}\nGT  : {s2}\nNo S: {s1_no_subst}", file=sys.stderr)
+    #     print("\n".join(reversed(dbg)), file=sys.stderr)
+    #     return distance, confusion, s1_no_subst
 
 
-def main_create_postcorrection_tsv():
-    """creates a TSV where on substitutions are considered erros to train delemmatiser from arbitrary prediction-target pairs
-    """
+    def __init__(self, alphabet: Union[LemmatizerBMP, str]):
+        if isinstance(alphabet, str):
+            alphabet = LemmatizerBMP.from_alphabet_mapping(alphabet, alphabet)
+        self.alphabet = alphabet
+        self.cm = np.zeros((len(self.alphabet), len(self.alphabet)), dtype=int)
+
+
+    def get_matrix(self) -> np.ndarray:
+        return self.cm
+
+
+
+
+# def create_substitutiononly_parallel_corpus(textlines: List[Tuple[str, str]]):
+#     alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in textlines]))))
+#     # Create a list to hold the modified text lines
+#     modified_lines = []
+#     for prediction, groundtruth in textlines:
+#         # Call the edit_distance_with_confusion function
+#         dist, conf, labels, no_sub = edit_distance_with_confusion(prediction, groundtruth, alphabet)
+#         # Append the no_substitution version of s1 to the modified lines
+#         modified_lines.append((no_sub, groundtruth))
+#     return modified_lines
+
+
+
+def main_get_augmented_substitutiononly_parallel_corpus():
     import fargv
-    import sys
-    p={
-        "ocr_prediction_target_tsv":"",
-        "substion_only_tsv":"",
-        "allow_overwrite": False,
-        "min_line_length": 50,
-        "max_edit_distance_tolerated": .2,
-        "verbose": False,
+    p = {
+        "gt_txt": "",
+        "src_txt": "",
+        "alphabet_str": "",
+        "out_txt": "",
     }
     args, _ = fargv.fargv(p)
-    if args.ocr_prediction_target_tsv == "":
-        input_fd = sys.stdin
-    else:
-        input_fd = open( args.ocr_prediction_target_tsv, "r")
+    if args.src_txt == "" and args.gt_txt == "":
+        #all_lines = sys.stdin.readlines()
+        #return
+        pass
 
-    if args.substion_only_tsv == "":
-        output_fd = sys.stdout
-    else:
-        if not Path(args.substion_only_tsv).exists() or args.allow_overwrite:
-            output_fd = open( args.substion_only_tsv, "w")
-        else:
-            raise IOError(f" Could not write to {args.substion_only_tsv}")
-    rejected = 0
-    all_accepted = []
-    for input_line in input_fd.readlines():
-        input_line = input_line.strip().split("\t")
-        if len(input_line) == 2 and len(input_line[1]) >= args.min_line_length:
-            all_accepted.append(input_line)
-        else:
-            rejected+=1
-    alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in all_accepted]))))
-    conf_acc = np.zeros([len(alphabet)+1, len(alphabet)+1])
-    all_dist = 0
-    for pred, gt in all_accepted:
-        dist, conf, labels, no_sub = edit_distance_with_confusion(pred, gt, alphabet)
-        all_dist+= dist
-        conf_acc += conf
-        if len(no_sub) != len(gt):
-            raise ValueError(f" Length mismatch after substitution-only processing\nPred: {pred}\nGT: {gt}\nNoSub: {no_sub}")
-        if (dist / len(gt)) > args.max_edit_distance_tolerated:
-            rejected += 1
-        else:
-            print(f"{no_sub}\t{gt}", file=output_fd)
-    output_fd.flush()
-    if args.verbose:
-        print(f"Read {rejected + len(all_accepted)} lines, kept {len(all_accepted)}, rejected {rejected} lines", file=sys.stderr)
-        print(f"Observed alphabet: {repr(alphabet)}", file=sys.stderr)
 
 
 def main_textline_full_cer():
+    """
+    Compute the full CER (including substitutions) between two textline files.
+    """
     import fargv
     import sys
     import tqdm

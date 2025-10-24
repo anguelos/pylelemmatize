@@ -41,4 +41,5 @@ else:
     print("Warning: Torch is not loaded. Seq2SeqDs will not be available.", file=sys.stderr)
 
 
-from .substitution_augmenter import main_create_postcorrection_tsv, main_train_substitution_only_postcorrection
+#from .substitution_augmenter import main_create_postcorrection_tsv, main_train_substitution_only_postcorrection
+from .substitution_augmenter import CharConfusionMatrix
