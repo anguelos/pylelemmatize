@@ -5,6 +5,20 @@ matplotlib
 scipy
 tqdm
 networkx
-pytest
-pytorch
+torch
 lxml
+
+# Testing
+pytest
+pytest-cov
+
+
+# Documentation
+sphinx
+sphinx-autodoc-typehints
+myst-parser
+sphinx-rtd-theme
+sphinx-copybutton
+sphinxcontrib-mermaid
+linkify-it-py
+sphinx_rtd_theme

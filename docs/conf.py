@@ -77,4 +77,4 @@ html_static_path = ["_static"]
 templates_path = ["_templates"]
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
-html_theme = "furo"  #"alabaster"  # or "furo", "sphinx_rtd_theme", etc.
+html_theme = "sphinx_rtd_theme"  #"alabaster", "furo", "sphinx_rtd_theme", etc.

@@ -128,7 +128,7 @@ def main_train_substitution_only_postcorrection(argv=sys.argv, **kwargs: Dict[st
             correct = (np.array(list(pred_str)) == np.array(list(out_str)))
             print("IN >",in_str)
             print("GT >",out_str)
-            print("OUT>     ", end='')
+            print("OUT> ", end='')
             print_err(pred_str, correct=correct, confidence=confidence)
             print("")
         net.save(args.output_model_path, args=args)  # Save the model after each epoch
@@ -147,10 +147,9 @@ def main_postcorrection_infer():
         "input_textlines": "",
         "output_textlines": "",
         "allow_overwrite": False,
+        "correct_only_column": -1,
         "model_path": "./tmp/models/postcorrection_model.pt",
-        "train_test_split": 0.8,
         "max_trainset_sz" : -1,  # -1 means no limit
-        "lr": 0.001,
         "crop_seqlen": 0,  # Set to None to not crop the sequences
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "verbose": False,
@@ -175,9 +174,20 @@ def main_postcorrection_infer():
         input_fd.seek(0)
 
     for input_line in input_fd.readlines():
-        input_line = input_line
-        pred_str, confidence = net.infer_str(input_line, device=args.device, return_confidence=True)
-        print(pred_str, file=output_fd)
+        if input_line[-1] == "\n":
+            input_line = input_line[:-1]
+        if args.correct_only_column >= 0:
+            line_pieces = input_line.split("\t")
+            input_line = line_pieces[args.correct_only_column]
+        #input_line = input_line
+        if len(input_line.strip()) > 0:
+            corrected_str, confidence = net.infer_str(input_line, device=args.device, return_confidence=True)
+        else:
+            corrected_str = input_line
+        if args.correct_only_column >= 0:
+            line_pieces[args.correct_only_column] = corrected_str
+            corrected_str = "\t".join(line_pieces)
+        print(corrected_str, file=output_fd)
         if args.verbose:
             progress.update(1)
     if args.verbose:
@@ -190,9 +200,13 @@ def main_create_postcorrection_tsv():
     """
     import fargv
     import sys
+    from pathlib import Path
+    from pylelemmatize.substitution_augmenter import CharConfusionMatrix
+    import tqdm
+    import time
     p={
         "ocr_prediction_target_tsv":"",
-        "substion_only_tsv":"",
+        "substitution_only_tsv":"",
         "allow_overwrite": False,
         "min_line_length": 50,
         "max_edit_distance_tolerated": .2,
@@ -204,37 +218,46 @@ def main_create_postcorrection_tsv():
     else:
         input_fd = open( args.ocr_prediction_target_tsv, "r")
 
-    if args.substion_only_tsv == "":
+    if args.substitution_only_tsv == "":
         output_fd = sys.stdout
     else:
-        if not Path(args.substion_only_tsv).exists() or args.allow_overwrite:
-            output_fd = open( args.substion_only_tsv, "w")
+        if not Path(args.substitution_only_tsv).exists() or args.allow_overwrite:
+            output_fd = open( args.substitution_only_tsv, "w")
         else:
-            raise IOError(f" Could not write to {args.substion_only_tsv}")
-    rejected = 0
+            raise IOError(f" Could not write to {args.substitution_only_tsv}")
+    length_rejected = 0
     all_accepted = []
     for input_line in input_fd.readlines():
         input_line = input_line.strip().split("\t")
         if len(input_line) == 2 and len(input_line[1]) >= args.min_line_length:
             all_accepted.append(input_line)
         else:
-            rejected+=1
-    alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in all_accepted]))))
-    conf_acc = np.zeros([len(alphabet)+1, len(alphabet)+1])
-    all_dist = 0
+            length_rejected+=1
+    alphabet_str = "".join(sorted(set("".join([f"{p}{g}" for p, g in all_accepted]))))
+    if args.verbose:
+        print(f"Kept {len(all_accepted)} lines for processing, rejected {length_rejected} lines based on min_line_length {args.min_line_length}.", file=sys.stderr)
+        print(f"Observed alphabet: {repr(alphabet_str)}", file=sys.stderr)
+    
+    cm = CharConfusionMatrix(alphabet=alphabet_str)
+    t = time.time()
+    ed_rejected = 0
+    kept = 0
+    if args.verbose:
+        progress = tqdm.tqdm(total=len(all_accepted), desc="Processing lines")
     for pred, gt in all_accepted:
-        dist, conf, labels, no_sub = edit_distance_with_confusion(pred, gt, alphabet)
-        all_dist+= dist
-        conf_acc += conf
+        no_sub, ed = cm.ingest_textline_observation(pred, gt)
+
         if len(no_sub) != len(gt):
             raise ValueError(f" Length mismatch after substitution-only processing\nPred: {pred}\nGT: {gt}\nNoSub: {no_sub}")
-        if (dist / len(gt)) > args.max_edit_distance_tolerated:
-            rejected += 1
+        if (ed / len(gt)) > args.max_edit_distance_tolerated:
+            ed_rejected += 1
         else:
             print(f"{no_sub}\t{gt}", file=output_fd)
+            kept += 1
+        if args.verbose:
+            progress.update(1)
+    if args.verbose:
+        progress.close()
     output_fd.flush()
     if args.verbose:
-        print(f"Read {rejected + len(all_accepted)} lines, kept {len(all_accepted)}, rejected {rejected} lines", file=sys.stderr)
-        print(f"Observed alphabet: {repr(alphabet)}", file=sys.stderr)
-
-
+        print(f"Processed {ed_rejected + kept} lines, kept {kept}, rejected {ed_rejected} lines for edit distance > {args.max_edit_distance_tolerated} in {time.time() - t:.2f} sec.", file=sys.stderr)

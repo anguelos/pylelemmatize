@@ -123,7 +123,6 @@ def test_ed(s1, s2, expected_ed):
     ("AAAAAGAAAAATTTT", "TTTTAAAAACAAAAA", "TTTTAAAAAGAAAAA", 9) # FOUR BEGIN DELETIONS + 1 SUBSTITUTIONS + FOUR END INSERTIONS,
 ])
 def test_backtrace_ed_matrix(pred, gt, tst_subonly, expected_ed):
-    #print("\n\n\n\n========================")
     alphabet_str = "ACGT"
     lemmatizer = LemmatizerBMP.from_alphabet_mapping(alphabet_str, alphabet_str)
     cm = CharConfusionMatrix(lemmatizer)
@@ -132,21 +131,7 @@ def test_backtrace_ed_matrix(pred, gt, tst_subonly, expected_ed):
     edit_distance, dp = cm.edit_distance(pred, gt)
     path, op_type, np_subonly, _ = cm.backtrace_ed_matrix(pred, gt, dp)
     subonly = lemmatizer.intlabel_seq_to_str(np_subonly)
-    #print(f"\npred  :{repr(pred)}\ngt    :{repr(gt)}\nsub_np: {repr(subonly)}\nsub_np:{repr(np_subonly)}\nDP:\n{dp}\npath:{path}\n{op_type}")
-    #tgt = np.array(gt.tolist() + [ 0 ])
-    #tpred = np.array(pred.tolist() + [ 0 ])
-    #alligned_input = tpred[path[:, 0]]
-    #alligned_gt = tgt[path[:, 1]]
-    #subonly_alligned_input = alligned_input[op_type != 2]
-    #subonly_alligned_input_str = lemmatizer.intlabel_seq_to_str(subonly_alligned_input)
-    #print(f"Input         : {repr(lemmatizer.intlabel_seq_to_str(pred))}")
-    #print(f"GT            : {repr(lemmatizer.intlabel_seq_to_str(gt))}")
-    #print(f"Subonly_np    : {repr(lemmatizer.intlabel_seq_to_str(np_subonly))}")
-    #print(f"Alligned Input: {repr(lemmatizer.intlabel_seq_to_str(alligned_input))}")
-    #print(f"Alligned GT   : {repr(lemmatizer.intlabel_seq_to_str(alligned_gt))}")
-    #print(f"Subonly Align.: {repr(lemmatizer.intlabel_seq_to_str(subonly_alligned_input))}")
     assert edit_distance == expected_ed
-    #assert subonly_alligned_input_str == tst_subonly
     assert subonly == tst_subonly
 
 
@@ -161,6 +146,44 @@ def test_ingest_textline_observation(pred, gt, tst_subonly, tst_cm):
     alphabet_str = "ACGT"
     lemmatizer = LemmatizerBMP.from_alphabet_mapping(alphabet_str, alphabet_str)
     cm = CharConfusionMatrix(lemmatizer)
-    sub_only = cm.ingest_textline_observation(pred, gt)
+    sub_only, _ = cm.ingest_textline_observation(pred, gt)
     assert sub_only == tst_subonly
     assert np.allclose(cm.get_matrix(), tst_cm)
+
+
+def test_mutation_probability():
+    alphabet_str = "ACGT"
+    lemmatizer = LemmatizerBMP.from_alphabet_mapping(alphabet_str, alphabet_str)
+    cm = CharConfusionMatrix(lemmatizer)
+    cm.cm[:,:] = [[0,  0,    0,   0,  0],
+                  [0, 150,  42,  31, 50],
+                  [0,  10, 200,  62, 5],
+                  [0,   3,  11, 250, 10],
+                  [0,   1,  21,   1, 300]]
+    input_samples = 1 + np.arange(100000, dtype=np.int32) % 4
+    mutated = cm.generate_random_substitution_sequences(input_samples)
+    vals, counts = np.unique(mutated, return_counts=True)  # Just to ensure it runs
+    cm_freq = cm.cm[1:, 1:].sum(axis=0)
+    cm_freq = cm_freq / cm_freq.sum()
+    output_freq = counts / counts.sum()
+
+    assert vals.tolist() == [1, 2, 3, 4]
+    assert np.allclose(output_freq, cm_freq, atol=0.1)
+
+
+def test_self_supervision_textline():
+    alphabet_str = "ACGT"
+    lemmatizer = LemmatizerBMP.from_alphabet_mapping(alphabet_str, alphabet_str)
+    cm = CharConfusionMatrix(lemmatizer)
+    cm.ingest_textline_observation("ACGT"* 10, "AGCT" * 10)
+    cm.ingest_textline_observation("A"* 30, "GGGCCTTTTT" * 3)
+    cm.ingest_textline_observation("C"* 30, "CCCCCCCCCG" * 3)
+    cm.ingest_textline_observation("G"* 30, "CCCCCCCCCG" * 3)
+    cm.ingest_textline_observation("T"* 30, "AAAAAAGGGG" * 3)
+    input_line = "ACGT" * 2500
+    mutated = cm.get_self_supervision_textline(input_line)
+    vals, counts = np.unique(np.array(list(mutated)), return_counts=True)  # Just to ensure it runs
+    cm_freq = cm.cm[1:, 1:].sum(axis=0)
+    cm_freq = cm_freq / cm_freq.sum()
+    output_freq = counts / counts.sum()
+    assert np.allclose(output_freq, cm_freq, atol=0.01)

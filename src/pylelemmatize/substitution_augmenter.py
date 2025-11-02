@@ -6,105 +6,41 @@ from .fast_mapper import LemmatizerBMP
 import pickle
 
 
-# def edit_distance(s1: np.ndarray, s2: np.ndarray) -> Tuple[int, np.ndarray]:
-#     """
-#     Compute Levenshtein edit distance between two sequences s1 and s2.
-#     Also returns the DP matrix used to compute the distance.
-#     Retursns
-#     -------
-#     distance : int
-#         The Levenshtein edit distance between s1 and s2.
-#     dp : np.ndarray
-#         The DP matrix used to compute the distance.
-#     """
-#     n, m = len(s1), len(s2)
-#     dp = np.zeros((n + 1, m + 1), dtype=int)
-#     for i in range(n + 1):
-#         dp[i, 0] = i
-#     for j in range(m + 1):
-#         dp[0, j] = j
-#     for i in range(1, n + 1):
-#         for j in range(1, m + 1):
-#             cost_sub = 0 if s1[i - 1] == s2[j - 1] else 1
-#             diag = dp[i - 1, j - 1] + cost_sub
-#             up = dp[i - 1, j] + 1
-#             left = dp[i, j - 1] + 1
-#             dp[i, j] = min(diag, up, left)
-#     distance = dp[n, m]
-#     return distance, dp
-
-
-# def substitution_only_input(input_seq: np.ndarray, gt_seq: np.ndarray, dp: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-#     """
-#     Given the edit distance DP matrix, backtrace to find the optimal path,
-#     and create a version of input_seq where only substitutions are realized.
-#     Returns
-#     -------
-#     path : np.ndarray
-#         The optimal alignment path.
-#     operation_type : np.ndarray
-#         The types of operations for each step in the path.
-#     gt_sub_input : np.ndarray
-#         The ground truth input sequence after applying substitutions.
-#     cm : np.ndarray
-#         The confusion matrix for the substitutions.
-#     """
-#     cm = np.zeros((5, 5)), dtype=np.int32)
-#     inp_idx = len(input_seq)
-#     gt_idx = len(gt_seq)
-#     res = []
-#     path = []
-#     operation_type = []
-#     gt_sub_input = []
-
-#     while inp_idx > 0 and gt_idx > 0:
-#         choice = ((dp[inp_idx - 1, gt_idx - 1], (-1, -1), 0), (dp[inp_idx - 1, gt_idx], (-1, 0), 2), (dp[inp_idx, gt_idx - 1], (0, -1), 3))
-#         _, (di, dj), op_type = min(choice, key=lambda x: x[0])
-#         inp_idx += di
-#         gt_idx += dj
-#         path.append((inp_idx, gt_idx))
-        
-#         if op_type == 0:
-#             gt_sub_input.append(input_seq[inp_idx])
-#             op_type = 0 if input_seq[inp_idx] == gt_seq[gt_idx] else 1
-#             cm[input_seq[inp_idx], gt_seq[gt_idx]] += 1
-#         elif op_type == 3:
-#             gt_sub_input.append(gt_seq[gt_idx])
-#             cm[0, gt_seq[gt_idx]] += 1
-#         elif op_type == 2:
-#             cm[input_seq[inp_idx], 0] += 1
-#         operation_type.append(op_type)
-    
-#     while gt_idx > 0:
-#         gt_idx -= 1
-#         path.append((inp_idx, gt_idx))
-#         operation_type.append(3)
-#         gt_sub_input.append(gt_seq[gt_idx])
-#         cm[0, gt_seq[gt_idx]] += 1
-
-#     while inp_idx > 0:
-#         inp_idx -= 1
-#         path.append((inp_idx, gt_idx))
-#         operation_type.append(2)
-#         gt_sub_input.append(input_seq[inp_idx])
-#         cm[input_seq[inp_idx], 0] += 1
-
-#     return np.array(path)[:,::-1], np.array(operation_type)[::-1], np.array(gt_sub_input[::-1]), cm
-
-
-
 class CharConfusionMatrix:
     @staticmethod
     def edit_distance(s1: np.ndarray, s2: np.ndarray) -> Tuple[int, np.ndarray]:
-        """
-        Compute Levenshtein edit distance between two sequences s1 and s2.
-        Also returns the DP matrix used to compute the distance.
-        Returns
-        -------
-        distance : int
-            The Levenshtein edit distance between s1 and s2.
-        dp : np.ndarray
-            The DP matrix used to compute the distance.
+        """Compute the Levenshtein edit distance between two sequences.
+
+        This function calculates the minimum number of single-character edits 
+        (insertions, deletions, or substitutions) required to change one sequence 
+        into the other. It also returns the dynamic programming (DP) matrix used 
+        to compute the distance.
+
+        Parameters
+        ----------
+        s1 : np.ndarray
+            The first sequence as a NumPy array.
+        s2 : np.ndarray
+            The second sequence as a NumPy array.
+
+            The Levenshtein edit distance between `s1` and `s2`.
+            The DP matrix used to compute the distance, where `dp[i, j]` represents 
+            the edit distance between the first `i` characters of `s1` and the first 
+            `j` characters of `s2`.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> s1 = np.array(['a', 'b', 'c'])
+        >>> s2 = np.array(['a', 'c', 'd'])
+        >>> distance, dp = edit_distance(s1, s2)
+        >>> distance
+        2
+        >>> dp
+        array([[0, 1, 2, 3],
+               [1, 0, 1, 2],
+               [2, 1, 1, 2],
+               [3, 2, 2, 2]])
         """
         n, m = len(s1), len(s2)
         dp = np.zeros((n + 1, m + 1), dtype=int)
@@ -125,19 +61,34 @@ class CharConfusionMatrix:
 
     def backtrace_ed_matrix(self, input_seq: np.ndarray, gt_seq: np.ndarray, dp: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Given the edit distance DP matrix, backtrace to find the optimal path,
-        and create a version of input_seq where only substitutions are realized.
+        Backtraces the edit distance matrix to compute the alignment path, operation types, 
+        ground truth substitutions, and confusion matrix.
+        Parameters
+        ----------
+        input_seq : np.ndarray
+            The input sequence represented as an array of indices.
+        gt_seq : np.ndarray
+            The ground truth sequence represented as an array of indices.
+        dp : np.ndarray
+            The dynamic programming matrix containing the edit distances.
         Returns
         -------
         path : np.ndarray
-            The optimal alignment path.
+            The alignment path as an array of (input_index, gt_index) pairs.
         operation_type : np.ndarray
-            The types of operations for each step in the path.
+            The sequence of operation types:
+            - 0: Match
+            - 1: Substitution
+            - 2: Deletion
+            - 3: Insertion
         gt_sub_input : np.ndarray
-            The ground truth input sequence after applying substitutions.
+            The ground truth sequence with substitutions applied.
         cm : np.ndarray
-            The confusion matrix for the substitutions.
-     """
+            The confusion matrix representing the counts of matches, substitutions, 
+            insertions, and deletions. The matrix has dimensions 
+            (len(alphabet), len(alphabet)), where the first row/column represents 
+            insertions/deletions.
+        """
         cm = np.zeros((len(self.alphabet), len(self.alphabet)), dtype=np.int32)
         inp_idx = len(input_seq)
         gt_idx = len(gt_seq)
@@ -181,33 +132,97 @@ class CharConfusionMatrix:
         return np.array(path)[::-1, :], np.array(operation_type)[::-1], np.array(gt_sub_input[::-1]), cm
 
 
-    def ingest_textline_observation(self, pred_line: str, gt_line: str) -> str:
+    def ingest_textline_observation(self, pred_line: str, gt_line: str) -> Tuple[str, int]:
         """
-        Ingest a pair of predicted and textlines.
-        Updates the confusion matrix with the observations from the edit distance.
-        Returns the input line after applying only the non-substitution operations
-        thus aligning it to the ground truth.
-        -------
+        Processes a pair of predicted and ground truth text lines, computes the edit distance,
+        and updates the confusion matrix.
+                
+        This method performs the following steps:
+        1. Converts the predicted and ground truth text lines into dense integer label sequences.
+        2. Computes the edit distance and dynamic programming matrix between the two sequences.
+        3. Performs a backtrace on the edit distance matrix to generate the ground truth substitution input and updates the confusion matrix.
+        4. Returns the ground truth substitution input and the computed edit distance.
+
+
+        Parameters
+        ----------
         pred_line : str
-            The predicted text line.
+            The predicted text line as a string.
         gt_line : str
-            The ground truth text line.
+            The ground truth text line as a string.
+
         Returns
         -------
-        str
-            The input line after applying only the non-substitution operations.
+        Tuple[str, int]
+            A tuple containing:
+            - The ground truth substitution input as a string.
+            - The edit distance between the predicted and ground truth text lines.
+
         """
         dense_pred = self.alphabet.str_to_intlabel_seq(pred_line)
         dense_gt = self.alphabet.str_to_intlabel_seq(gt_line)
         distance, dp = self.edit_distance(dense_pred, dense_gt)
         _, _, gt_sub_input, cm = self.backtrace_ed_matrix(dense_pred, dense_gt, dp)
         self.cm += cm
-        return self.alphabet.intlabel_seq_to_str(gt_sub_input)
+        return self.alphabet.intlabel_seq_to_str(gt_sub_input), distance
+
+
+    def generate_random_substitution_sequences(self, seq) -> np.ndarray:
+        """
+        Generate random substitution sequences based on a conditional probability matrix.
+
+        This method generates a sequence of random substitutions for the input
+        sequence ``seq`` using the confusion matrix as conditional probability. Each
+        output symbol is sampled from the conditional probabilities of the
+        corresponding input symbol.
+
+        Parameters
+        ----------
+        seq : np.ndarray
+            Input sequence represented as a NumPy array of integers. Each integer
+            corresponds to a symbol in the vocabulary.
+
+        Returns
+        -------
+        np.ndarray
+            A NumPy array of the same shape as ``seq``, where each element is a
+            randomly substituted symbol based on the conditional probability matrix.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> cm = np.array([[0, 0.5, 0.5],
+        ...                [0, 0.7, 0.3],
+        ...                [0, 0.4, 0.6]])
+        >>> seq = np.array([1, 2, 1])
+        >>> augmenter = SubstitutionAugmenter(cm)
+        >>> out = augmenter.generate_random_substitution_sequences(seq)
+        >>> out.shape == seq.shape
+        True
+        """
+        
+        e = 1e-8
+        cm = self.cm.copy()
+        cm[:, 0] = 0  # Zero out deletions
+        cm[0, :] = 0  # Zero out insertions
+        cm = cm / (cm.sum(axis=1, keepdims=True) + e)  # Normalize to probabilities
+        all_cond_probabilities_cdf = np.cumsum(cm, axis=1)
+        rnd_vals = np.random.rand(seq.shape[0])
+        res = np.zeros_like(seq)
+        for n in range(seq.shape[0]):
+            input_symbol  = seq[n]
+            res[n] = np.searchsorted(all_cond_probabilities_cdf[input_symbol, :], rnd_vals[n])
+        return res
     
+    def get_self_supervision_textline(self, input_line: str) -> str:
+        dense_input = self.alphabet.str_to_intlabel_seq(input_line)
+        mutated = self.generate_random_substitution_sequences(dense_input)
+        return self.alphabet.intlabel_seq_to_str(mutated)
 
     def save(self, file_path: Union[str, Path]):
         pickle.dump([self.alphabet.dst_alphabet_str, self.cm], open(file_path, "wb"))
-    
+
+
     @staticmethod
     def load(file_path: Union[str, Path]) -> "CharConfusionMatrix":
         dst_alphabet_str, cm = pickle.load(open(file_path, "rb"))
@@ -215,118 +230,6 @@ class CharConfusionMatrix:
         char_cm = CharConfusionMatrix(lemmatizer)
         char_cm.cm = cm
         return char_cm
-
-    # def edit_distance_with_confusion(
-    #     self,
-    #     s1: str,
-    #     s2: str,
-    #     distance_only: bool = False,
-    # ) -> Tuple[int, Union[np.ndarray, None], Union[str, None]]:
-    #     """
-    #     Compute Levenshtein edit distance and a confusion matrix (with a null class).
-    #     Also return a version of s1 where we apply only the non-substitution ops from
-    #     the optimal path: insertions and deletions are realized, substitutions are NOT
-    #     realized (the original s1 symbol is kept).
-
-    #     Returns
-    #     -------
-    #     distance : int
-    #     confusion : np.ndarray (K+1, K+1)
-    #     labels : np.ndarray (K+1,)
-    #     s1_no_subst : str
-    #         s1 after applying only insertions/deletions from the optimal alignment;
-    #         substitutions are ignored (keep the s1 symbol).
-    #     """
-    #     # Validate alphabet uniqueness & contents
-    #     #alpha_list = list(alphabet)
-
-    #     # Labels and indices
-    #     #labels: List[str] = alpha_list + [null_symbol]
-    #     #label_to_idx = {ch: i for i, ch in enumerate(labels)}
-    #     null_idx = 0 #label_to_idx[null_symbol]
-
-    #     dense_s1 = self.alphabet.str_to_intlabel_seq(s1)
-    #     dense_s2 = self.alphabet.str_to_intlabel_seq(s2)
-
-    #     #n, m = len(s1), len(s2)
-
-    #     # DP + backpointers
-    #     dp = np.zeros((dense_s1.size + 1, dense_s2.size + 1), dtype=int)
-    #     back = np.empty((dense_s1.size + 1, dense_s2.size + 1), dtype=np.int8)  # 0=start, 1=diag, 2=up(del), 3=left(ins)
-    #     back_up_del = 2
-    #     back_left_ins = 3
-    #     back_diag = 1
-    #     back_start = 0
-
-
-    #     for i in range(1, dense_s1.size + 1):
-    #         dp[i, 0] = i
-    #         back[i, 0] = back_up_del
-    #     for j in range(1, dense_s2.size + 1):
-    #         dp[0, j] = j
-    #         back[0, j] = back_left_ins
-    #     back[0, 0] = back_start
-
-    #     for i in range(1, dense_s1.size + 1):
-    #         s1c = dense_s1[i - 1]
-    #         for j in range(1, dense_s2.size + 1):
-    #             s2c = dense_s2[j - 1]
-    #             cost_sub = 0 if s1c == s2c else 1
-    #             diag = dp[i - 1, j - 1] + cost_sub
-    #             up = dp[i - 1, j] + 1
-    #             left = dp[i, j - 1] + 1
-    #             best = min(diag, up, left)
-    #             dp[i, j] = best
-    #             if best == diag:
-    #                 back[i, j] = back_diag
-    #             elif best == up:
-    #                 back[i, j] = back_up_del
-    #             else:
-    #                 back[i, j] = back_left_ins
-
-    #     distance = int(dp[dense_s1.size, dense_s2.size])
-    #     if distance_only:
-    #         return distance, None, None
-
-    #     # Backtrace: fill confusion and build the "no-substitution-realization" string
-    #     #K = self.alphabet.size
-    #     confusion = np.zeros((len(self.alphabet), len(self.alphabet)), dtype=int)
-
-    #     i, j = dense_s1.size, dense_s2.size
-    #     sub_only_rev: List[str] = []
-
-    #     dbg = []
-
-    #     while not (i == 0 and j == 0):
-    #         move = back[i, j]
-    #         if move == 1:  # diag: match or substitution
-    #             src = dense_s1[i - 1]
-    #             tgt = dense_s2[j - 1]
-    #             confusion[src, tgt] += 1
-    #             # KEY DIFFERENCE:
-    #             # - If it's a match, appending src or tgt is identical.
-    #             # - If it's a substitution, we DO NOT realize it; keep the source char.
-    #             sub_only_rev.append(src)
-    #             dbg.append(f"S: move{move}: src:{'0ACGT'[src]}->tgt:{'0ACGT'[tgt]}")
-    #             i -= 1
-    #             j -= 1
-    #         elif move == 2:  # deletion (src->null): remove src from output
-    #             src = dense_s1[i - 1]
-    #             confusion[src, null_idx] += 1
-    #             # deletion => emit nothing
-    #             i -= 1
-    #         else:  # insertion (null->tgt): insert tgt into output
-    #             tgt = dense_s2[j - 1]
-    #             confusion[null_idx, tgt] += 1
-    #             sub_only_rev.append(tgt)
-    #             j -= 1
-    #             dbg.append(f"I: move{move}: src: ->tgt:{'0ACGT'[tgt]}")
-    #     sub_only = np.array(sub_only_rev)[::-1]
-    #     s1_no_subst =  self.alphabet.intlabel_seq_to_str(sub_only)
-    #     print("Debug alignment trace:", file=sys.stderr)
-    #     print(f"Pred: {s1}\nGT  : {s2}\nNo S: {s1_no_subst}", file=sys.stderr)
-    #     print("\n".join(reversed(dbg)), file=sys.stderr)
-    #     return distance, confusion, s1_no_subst
 
 
     def __init__(self, alphabet: Union[LemmatizerBMP, str]):
@@ -380,25 +283,43 @@ def main_textline_full_cer():
     import tqdm
     from pylelemmatize.demapper_lstm import DemapperLSTM
     p = {
+        "src_tsv": "",
         "src1_txt": "",
         "src2_txt": "",
         "ignore_lines_with_cer_above": 1.,
         "verbose": False,
     }
     args, _ = fargv.fargv(p)
-    textlines1 = open(args.src1_txt,"r").readlines()
-    textlines2 = open(args.src2_txt,"r").readlines()
+    if args.src_tsv != "":
+        assert args.src1_txt == "" and args.src2_txt == "", "If src_tsv is provided, src1_txt and src2_txt must be empty"
+        textlines1, textlines2 = zip(*[line.split("\t")[:2] for line in open(args.src_tsv,"r").readlines()])
+    elif args.src1_txt != "" and args.src2_txt != "":
+        assert args.src_tsv == "", "If src1_txt and src2_txt are provided, src_tsv must be empty"
+        textlines1 = open(args.src1_txt,"r").readlines()
+        textlines2 = open(args.src2_txt,"r").readlines()
+    elif args.src1_txt == "" and args.src2_txt == "" and args.src_tsv == "":
+        textlines1 = []
+        textlines2 = []
+        for line in sys.stdin.readlines():
+            p1, p2 = line.split("\t")[:2]
+            textlines1.append(p1)
+            textlines2.append(p2)
     assert len(textlines1) == len(textlines2), "Input files must have the same number of lines."
-    alphabet = "".join(sorted(set("".join(textlines1 + textlines2))))
+    alphabet_str ="".join(sorted(set("".join(textlines1 + textlines2))))
+    alphabet = LemmatizerBMP.from_alphabet_mapping(alphabet_str, alphabet_str)
     all_dist = 0
-    conf_acc = np.zeros([len(alphabet)+1, len(alphabet)+1])
+    conf_acc = np.zeros([len(alphabet), len(alphabet)])
     dropped_lines = 0
     dropped_chars = 0
     total_chars = 0
     if args.verbose:
         progress = tqdm.tqdm(total=len(textlines1), desc="Processing lines")
+    cm = CharConfusionMatrix(alphabet)
     for l1, l2 in zip(textlines1, textlines2):
-        dist, conf, labels, no_sub = edit_distance_with_confusion(l1, l2, alphabet)
+        np_l1 = alphabet.str_to_intlabel_seq(l1)
+        np_l2 = alphabet.str_to_intlabel_seq(l2)
+        dist, dp = cm.edit_distance(np_l1, np_l2)
+        _, _, _, conf = cm.backtrace_ed_matrix(np_l1, np_l2, dp)
         if (dist / len(l2.strip())) > args.ignore_lines_with_cer_above:
             dropped_lines += 1
             dropped_chars += len(l2)
@@ -411,9 +332,10 @@ def main_textline_full_cer():
     if args.verbose:
         progress.close()
     cer = all_dist / total_chars
-    insertions = conf_acc[:, -1].sum()
-    deletions = conf_acc[-1, :].sum()
-    substitutions = conf_acc.sum() - np.trace(conf_acc) - insertions - deletions
+    insertions = conf_acc[:, 0].sum()
+    deletions = conf_acc[0, :].sum()
+    invalids = conf_acc[0, 0]
+    substitutions = conf_acc.sum() - np.trace(conf_acc) - (insertions + deletions + invalids)
     print(f"Dropped lines: {dropped_lines}, Dropped characters: {dropped_chars}")
     print(f"Total characters (after dropping): {total_chars}")
     print(f"Total edit distance: {all_dist}")

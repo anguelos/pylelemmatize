@@ -43,7 +43,15 @@ def fast_cer(pred: str, true: str) -> float:
 
 
 
-class AbstractLemmatizer(ABC):    
+class AbstractLemmatizer(ABC):
+    """Abstract base class for lemmatizers that map characters from a source alphabet to a destination alphabet.
+    
+    Attributes:
+        src_alphabet_str (str): The source alphabet string.
+        dst_alphabet_str (str): The destination alphabet string.
+        unknown_chr (str): The character used for unknown mappings. Default is "�".
+        normalize_unicode (Callable[[str], str]): Function to normalize Unicode strings.
+    """
     def _densify_unicode(self: Any, text: str) -> str:
         """
         Convert a Unicode string to its composed (dense) form using NFC normalization.

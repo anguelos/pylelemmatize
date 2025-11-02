@@ -6,12 +6,15 @@ from .fast_mapper import LemmatizerBMP
 #from .charset import allbmp_encoding_alphabet_strings, allnonbmp_encoding_alphabet_strings, main_map_test_corpus_on_alphabets
 
 #from .charset import chr_iso, chr_mes, chr_ascii, chr_mufi_bmp, chr_mufi_nonbmp
-from .charsets import Charsets
-charset = Charsets()
+from .all_charsets import Charsets
+charsets = Charsets()
 
 from .util import extract_transcription_from_page_xml, main_extract_transcription_from_page_xml, print_err
 import sys
 from .philogeny import main_char_similarity_tree
+from .version import version
+from .substitution_augmenter import CharConfusionMatrix
+__version__ = version
 
 
 default_unknown_chr = "�"
@@ -34,12 +37,16 @@ def create_lemmatizer(src_alphabet_str: str, dst_alphabet_str: Optional[str]=Non
         raise ValueError(f"Unknown mapper type: {mapper_type}")
 
 
-if "torch" in sys.modules:
+__all__ = ["create_lemmatizer", "GenericLemmatizer", "LemmatizerBMP",
+           "char_similarity", "fast_cer", "fast_numpy_to_str", "fast_str_to_numpy",
+           "Charsets", "charset",
+           "extract_transcription_from_page_xml", "print_err",
+           "CharConfusionMatrix", "__version__"]
+
+if "torch" in sys.modules or "sphinx" in sys.modules:  # to allow doc generation without torch
     from .mapper_ds import Seq2SeqDs
     from .demapper_lstm import DemapperLSTM, main_train_one2one, main_infer_one2one, main_report_demapper
+    __all__.extend(["Seq2SeqDs", "DemapperLSTM", "main_train_one2one", "main_infer_one2one", "main_report_demapper"])
 else:
     print("Warning: Torch is not loaded. Seq2SeqDs will not be available.", file=sys.stderr)
 
-
-#from .substitution_augmenter import main_create_postcorrection_tsv, main_train_substitution_only_postcorrection
-from .substitution_augmenter import CharConfusionMatrix
