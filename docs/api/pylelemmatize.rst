@@ -16,9 +16,16 @@ Public API (summary)
 Classes
 -------
 
+.. autoclass:: AbstractLemmatizer
+   :noindex:
+   :members:
+   :inherited-members:
+   :show-inheritance:
+
 .. autoclass:: LemmatizerBMP
    :noindex:
    :members:
+   :inherited-members:
    :show-inheritance:
 
 ..
@@ -26,6 +33,7 @@ Classes
 
 .. autoclass:: GenericLemmatizer
    :members:
+   :inherited-members:
    :show-inheritance:
 
 ..

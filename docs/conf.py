@@ -58,7 +58,7 @@ templates_path = ["_templates"]
 autodoc_default_options = {
     "members": True,          # we'll explicitly list members
     "undoc-members": False,
-    "inherited-members": True,
+    "inherited-members": False,  # To supress external classes' members add :inherited-members: on class directives manually
     "show-inheritance": True,
     "special-members": "__call__",
 }

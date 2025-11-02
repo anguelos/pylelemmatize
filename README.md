@@ -1,5 +1,15 @@
 # PyLeLemmatize
 
+[![PyPI](https://img.shields.io/pypi/v/pylelemmatize.svg)](https://pypi.org/project/pylelemmatize/)
+[![Python](https://img.shields.io/pypi/pyversions/pylelemmatize.svg)](https://pypi.org/project/pylelemmatize/)
+[![Build](https://github.com/anguelos/pylelemmatize/actions/workflows/tests.yml/badge.svg)](https://github.com/anguelos/pylelemmatize/actions/workflows/tests.yml)
+[![Docs](https://readthedocs.org/projects/pylelemmatize/badge/?version=latest)](https://pylelemmatize.readthedocs.io/en/latest/)
+[![License](https://img.shields.io/github/license/anguelos/pylelemmatize.svg)](https://github.com/anguelos/pylelemmatize/blob/main/LICENSE)
+
+A fast, modular lemmatization toolkit for Python.
+
+
+
 PyLeLemmatize is a Python package for lemmatizing text. It provides a simple and efficient way to reduce large characters to simpler ones.
 
 ## Installation
@@ -60,7 +70,7 @@ ll_test_corpus_on_alphabets -corpus_glob './sample_data/wienocist_charter_1/wien
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request on GitHub.
+Contributions are welcome!
 
 ## License
 
