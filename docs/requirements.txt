@@ -3,15 +3,12 @@ myst-parser
 sphinx-autobuild
 sphinx-autodoc-typehints
 sphinx_rtd_theme  # or furo, if you use that
-
--e ..
+-e .
 torch
-numpy
-numpy
 unidecode
 fargv
 matplotlib
-scipy
 tqdm
 networkx
 lxml
+numpy
