@@ -3,6 +3,9 @@ myst-parser
 sphinx-autobuild
 sphinx-autodoc-typehints
 sphinx_rtd_theme  # or furo, if you use that
+sphinx-copybutton
+sphinxcontrib-mermaid
+linkify-it-py
 -e .
 torch
 unidecode
