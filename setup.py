@@ -19,9 +19,10 @@ setup(
     url='https://github.com/anguelos/pylelemmatize',
     classifiers=[
         'Programming Language :: Python :: 3',
-        'MIT AND (Apache-2.0 OR BSD-2-Clause)',
+        'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
+    license_files=["LICENSE*", "LICENSES/*"],
     python_requires='>=3.6',
     entry_points={
         'console_scripts': [
