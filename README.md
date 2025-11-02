@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/pylelemmatize.svg)](https://pypi.org/project/pylelemmatize/)
 [![Build](https://github.com/anguelos/pylelemmatize/actions/workflows/tests.yml/badge.svg)](https://github.com/anguelos/pylelemmatize/actions/workflows/tests.yml)
 [![Docs](https://readthedocs.org/projects/pylelemmatize/badge/?version=latest)](https://pylelemmatize.readthedocs.io/en/latest/)
-[![License](https://img.shields.io/github/license/anguelos/pylelemmatize.svg)](https://github.com/anguelos/pylelemmatize/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/github/license/anguelos/pylelemmatize.svg)](https://github.com/anguelos/pylelemmatize/blob/main/LICENSE)
 
 A fast, modular lemmatization toolkit for Python.
 
