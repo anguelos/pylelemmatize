@@ -22,4 +22,4 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest --cov=./src/pylelemmatize --cov-report=term-missing
+          pytest -q --cov=pylelemmatize --cov-report=term-missing --cov-branch
