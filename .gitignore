@@ -3,6 +3,9 @@
 experiments/mufi_extraction/MUFI-CodeChart-4-0.pdf
 paper
 
+experiments/
+data/
+sample_data/
 
 # ----------------------------
 # Sphinx documentation

@@ -275,8 +275,8 @@ def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
 
     p = {
         #"input_alphabet": allbmp_encoding_alphabet_strings["bmp_mufi"],
-        "input_alphabet": pylelemmatize.charset.mes3a,
-        "output_alphabet": pylelemmatize.charset.ascii,
+        "input_alphabet": pylelemmatize.charsets.mes3a,
+        "output_alphabet": pylelemmatize.charsets.ascii,
         "hidden_sizes": "128,128,128",
         "corpus_files": set(glob.glob("./tmp/koeningsfelden/koenigsfelden_1308-1662_expanded/*0*txt")),
         "dropouts": "0.1,0.1,0.1",
@@ -404,7 +404,21 @@ def main_report_demapper():
         nb_epochs = len(model.history['train_loss'])
         validation_epochs = sorted(model.history['valid_accuray'].keys())
 
-def main_infer_one2one():
+
+def main_infer_one2one(model_path: str ="./tmp/models/model.pt", 
+                       s = "", 
+                       input_file: str = "stdin",
+                       device: str = "cuda" if torch.cuda.is_available() else "cpu",
+                       print_line_count: bool = False,
+                       print_line_inputs: bool = False,
+                       print_line_rawinputs: bool = False,
+                       output_file: str = "stdout",
+                       resume_last_weights: bool = False,
+                       allow_overwrite:  bool = False,
+                       append_output: bool = False,
+                       add_newline: bool = False,
+                       new_line_separator: bool = False):
+    p = locals()
     import fargv
     from pathlib import Path
     from pylelemmatize.mapper_ds import Seq2SeqDs
@@ -412,21 +426,21 @@ def main_infer_one2one():
     import tqdm
     import sys
 
-    p = {
-        "model_path": "./tmp/models/model.pt",
-        "s" : "",
-        "input_file": "stdin",
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "print_line_count": False,
-        "print_line_inputs": False,
-        "print_line_rawinputs": False,
-        "output_file": "stdout",
-        "resume_last_weights": False,
-        "allow_overwrite": False,
-        "append_output": False,
-        "add_newline": False,
-        "new_line_separator": False,
-    }
+    # p = {
+    #     "model_path": "./tmp/models/model.pt",
+    #     "s" : "",
+    #     "input_file": "stdin",
+    #     "device": "cuda" if torch.cuda.is_available() else "cpu",
+    #     "print_line_count": False,
+    #     "print_line_inputs": False,
+    #     "print_line_rawinputs": False,
+    #     "output_file": "stdout",
+    #     "resume_last_weights": False,
+    #     "allow_overwrite": False,
+    #     "append_output": False,
+    #     "add_newline": False,
+    #     "new_line_separator": False,
+    # }
     args, _ = fargv.fargv(p)
     net = DemapperLSTM.resume(args.model_path, resume_best_weights=(not args.resume_last_weights))
     net = net.to(args.device)

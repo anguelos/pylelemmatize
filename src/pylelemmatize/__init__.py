@@ -1,6 +1,5 @@
 from typing import Dict, Literal, Optional
 from .char_distance import char_similarity
-from .main_scripts import main_alphabet_extract_corpus_alphabet, main_alphabet_evaluate_merges
 from .abstract_mapper import AbstractLemmatizer, GenericLemmatizer, fast_cer, fast_numpy_to_str, fast_str_to_numpy
 from .fast_mapper import LemmatizerBMP
 #from .charset import allbmp_encoding_alphabet_strings, allnonbmp_encoding_alphabet_strings, main_map_test_corpus_on_alphabets
