@@ -394,15 +394,36 @@ def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
 
 
 def main_report_demapper():
+    import torch
     import fargv
+    from matplotlib import pyplot as plt
+    import seaborn as sns
+    from pathlib import Path
+
     p = {
         "models": set(["./tmp/models/model.pt",])
     }
     args, _ = fargv.fargv(p)
+    results = []
+    sns.set_theme(style="whitegrid", palette="pastel")
     for model_path in args.models:
         model = DemapperLSTM.resume(model_path)
         nb_epochs = len(model.history['train_loss'])
-        validation_epochs = sorted(model.history['valid_accuray'].keys())
+        val_epochs = np.array(sorted(model.history['valid_acc'].keys()))
+        val_accs = np.array([model.history['valid_acc'][ep] for ep in val_epochs])
+        model_name = str(Path(model_path).stem)
+        print(f"Model: {model_name} trained for {nb_epochs} epochs.")
+        print(f"Validation accuracies: {model.history['valid_acc']}")
+        plt.figure(figsize=(10, 6))
+        sns.lineplot(x=val_epochs, y=100*(1-val_accs), marker='o')
+        plt.title(f"Validation Accuracy for {model_path}")
+        plt.xlabel("Epoch")
+        plt.ylabel("Validation Error %")
+        plt.grid()
+        plt.show()
+        #validation_epochs = sorted(model.history['valid_accuracy'].keys())
+        #results.append((model_path, nb_epochs, validation_epochs))
+    #print(results)
 
 
 def main_infer_one2one(model_path: str ="./tmp/models/model.pt", 

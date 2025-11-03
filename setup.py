@@ -9,7 +9,7 @@ setup(
     package_dir={"": "src"},           
     packages=find_packages(where="src"),
     install_requires=[
-        'numpy', 'unidecode', 'fargv', 'matplotlib', 'scipy', 'tqdm', 'networkx', 'lxml'
+        'numpy', 'unidecode', 'fargv', 'matplotlib', 'seaborn', 'scipy', 'tqdm', 'networkx', 'lxml'
     ],
     author='Anguelos Nicolaou',
     author_email='anguelos.nicolaou@gmail.com',
