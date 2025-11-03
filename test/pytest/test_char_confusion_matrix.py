@@ -187,4 +187,3 @@ def test_self_supervision_textline():
     cm_freq = cm_freq / cm_freq.sum()
     output_freq = counts / counts.sum()
     assert np.allclose(output_freq, cm_freq, atol=0.01)
-    assert False
