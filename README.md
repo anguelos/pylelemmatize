@@ -1,4 +1,4 @@
-# PyLeLemmatize
+# Getting started
 
 [![PyPI](https://img.shields.io/pypi/v/pylelemmatize.svg)](https://pypi.org/project/pylelemmatize/)
 [![Python](https://img.shields.io/pypi/pyversions/pylelemmatize.svg)](https://pypi.org/project/pylelemmatize/)

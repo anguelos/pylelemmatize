@@ -7,5 +7,5 @@ Short tagline or intro.
 :hidden:
 
 getting-started
-
 api/pylelemmatize
+api/modules
