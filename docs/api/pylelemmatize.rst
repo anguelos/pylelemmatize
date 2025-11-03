@@ -81,19 +81,21 @@ Functions
 .. autofunction:: extract_transcription_from_page_xml
    :noindex:
 
-Entry Points
-------------
-
-Functions that act as **entry points** (e.g., console scripts, `python -m pylelemmatize`, or a `cli` module). Point directly at the callable your packaging exposes.
-
-.. autofunction:: pylelemmatize.main_infer_one2one
-   :noindex:
 
 ..
-   .. note::
+   Entry Points
+   ------------
 
-      If your console script is defined in `pyproject.toml` or `setup.cfg` as, e.g.,
+   Functions that act as **entry points** (e.g., console scripts, `python -m pylelemmatize`, or a `cli` module). Point directly at the callable your packaging exposes.
 
-      - ``pylemmatize = pylelemmatize.cli:main``
+   .. autofunction:: pylelemmatize.main_infer_one2one
+      :noindex:
 
-      then documenting ``cli.main`` (as above) will show exactly what users run.
+   ..
+      .. note::
+
+         If your console script is defined in `pyproject.toml` or `setup.cfg` as, e.g.,
+
+         - ``pylemmatize = pylelemmatize.cli:main``
+
+         then documenting ``cli.main`` (as above) will show exactly what users run.

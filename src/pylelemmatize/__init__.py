@@ -45,8 +45,8 @@ __all__ = ["create_lemmatizer", "AbstractLemmatizer", "GenericLemmatizer", "Lemm
 
 if "torch" in sys.modules or "sphinx" in sys.modules:  # to allow doc generation without torch
     from .mapper_ds import Seq2SeqDs
-    from .demapper_lstm import DemapperLSTM, main_train_one2one, main_infer_one2one, main_report_demapper
-    __all__.extend(["Seq2SeqDs", "DemapperLSTM", "main_train_one2one", "main_infer_one2one", "main_report_demapper"])
+    from .demapper_lstm import DemapperLSTM
+    __all__.extend(["Seq2SeqDs", "DemapperLSTM"])
 else:
     print("Warning: Torch is not loaded. Seq2SeqDs will not be available.", file=sys.stderr)
 
