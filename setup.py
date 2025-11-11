@@ -31,15 +31,13 @@ setup(
             'll_infer_one2one=pylelemmatize.demapper_lstm:main_infer_one2one',
             'll_train_one2one=pylelemmatize.demapper_lstm:main_train_one2one',
             'll_train_one2one_report=pylelemmatize.demapper_lstm:main_report_demapper',
-            'll_extract_corpus_alphabet=pylelemmatize.main_scripts:main_alphabet_extract_corpus_alphabet',
-            #'ll_test_corpus_on_alphabets=pylelemmatize.main_scripts:main_map_test_corpus_on_alphabets',
+            'll_extract_corpus_alphabet=pylelemmatize.main_functions:main_alphabet_extract_corpus_alphabet',
+            'll_test_corpus_on_alphabets=pylelemmatize.all_charsets:main_map_test_corpus_on_alphabets',
             'll_evaluate_merges=pylelemmatize.main_scripts:main_alphabet_evaluate_merges',
             'll_extract_transcription_from_page_xml=pylelemmatize.util:main_extract_transcription_from_page_xml',
             #'ll_many_to_more=pylelemmatize.many_to_more:many_to_more_main',
             #'ll_many_to_more_evaluate=pylelemmatize.many_to_more:many_to_more_evaluate_main',
-            
             'll_create_postcorrection_tsv=pylelemmatize.htr_postcorrection:main_create_postcorrection_tsv',
-            
             'll_textline_full_cer=pylelemmatize.substitution_augmenter:main_textline_full_cer',
             'll_postcorrection=pylelemmatize.htr_postcorrection:main_postcorrection_infer',
             'll_postcorrection_train=pylelemmatize.htr_postcorrection:main_train_substitution_only_postcorrection',
