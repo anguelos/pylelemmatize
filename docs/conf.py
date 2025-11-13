@@ -76,5 +76,5 @@ source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 html_static_path = ["_static"]
 templates_path = ["_templates"]
 
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "publish.md"]
 html_theme = "sphinx_rtd_theme"  #"alabaster", "furo", "sphinx_rtd_theme", etc.
