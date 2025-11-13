@@ -3,7 +3,7 @@
 <p align="center">
   <picture>
     <!-- Used by Sphinx (relative path inside docs/) -->
-    <source srcset="../../../docs/_static/images/logo.png">
+    <!-- <source srcset="../../../docs/_static/images/logo.png">  TODO (anguelos) sort out how to link to the logo corectly-->
     <!-- Used by GitHub / PyPI -->
     <img alt="PyLemmatize" src="https://raw.githubusercontent.com/anguelos/pylelemmatize/main/docs/_static/images/logo.png" width="640">
   </picture>
