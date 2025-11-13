@@ -1,10 +1,11 @@
 import pylelemmatize_torch
+import os
 
-is_not_github_action = "GITHUB_ACTIONS" not in pylelemmatize_torch.__dict__.get("os", {}).environ
+in_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
 
 def test_torch_util_imported():
     # TODO (anguelos): re-enable when why this fails in CI is understood
-    if is_not_github_action:
+    if not in_github_actions:
         assert pylelemmatize_torch is not None
         assert hasattr(pylelemmatize_torch, "Seq2SeqDs")
         assert hasattr(pylelemmatize_torch, "DemapperLSTM")
