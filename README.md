@@ -1,3 +1,15 @@
+
+
+<p align="center">
+  <picture>
+    <!-- Used by Sphinx (relative path inside docs/) -->
+    <source srcset="../../../docs/_static/images/logo.png">
+    <!-- Used by GitHub / PyPI -->
+    <img alt="PyLemmatize" src="https://github.com/yourusername/yourrepo/raw/main/docs/_static/images/logo.png" width="640">
+  </picture>
+</p>
+
+
 # Getting started
 
 [![PyPI](https://img.shields.io/pypi/v/pylelemmatize.svg)](https://pypi.org/project/pylelemmatize/)
@@ -177,15 +189,4 @@ This will run all bash scripts with -h essetially checking syntax and imports
 ```bash
 ./test/test_shell_scripts.sh
 ```
-
-
-
-<p align="center">
-  <picture>
-    <!-- Used by Sphinx (relative path inside docs/) -->
-    <source srcset="docs/_static/images/pylelemmatize_github.png">
-    <!-- Used by GitHub / PyPI -->
-    <img alt="PyLemmatize" src="https://github.com/yourusername/yourrepo/raw/main/docs/_static/images/pylelemmatize_github.png" width="100">
-  </picture>
-</p>
 
