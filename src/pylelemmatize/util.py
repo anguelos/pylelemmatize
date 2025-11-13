@@ -1,6 +1,10 @@
 import re
-from typing import Generator, Set, Union, List
+from typing import Generator, Literal, Set, Union, List
+from anyio import Path
 import tqdm
+import sys
+
+
 
 
 def fast_extract_text_from_xml(xml_string: str, concatenate: bool = True) -> Union[str, List[str]]:
@@ -86,7 +90,7 @@ def extract_transcription_from_page_xml(xml_content, line_separator="\n", linese
     return line_separator.join(lines)
 
 
-def print_err(txt="Hello", correct=None, confidence=None):
+def print_err(txt="Hello", correct=None, confidence=None, file=None):
     def interpolate_color(c1, c2, t):
         """Linearly interpolate between two RGB colors c1 and c2 by t (0 to 1)."""
         return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
@@ -112,7 +116,10 @@ def print_err(txt="Hello", correct=None, confidence=None):
     output = ''
     for c, corr, conf in zip(txt, correct, confidence):
         output += colorize_char(c, corr, conf)
-    print(output)
+    if file is None:
+        print(output)
+    else:
+        print(output, file=file)
 
 
 def main_extract_transcription_from_page_xml():

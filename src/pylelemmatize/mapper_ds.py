@@ -159,9 +159,11 @@ class Seq2SeqDs:
     def __len__(self) -> int:
         return len(self.src_text_blocks)
 
-    def __getitem__(self, n: int, as_string: bool = False) -> Tuple[torch.tensor, torch.tensor]:
+    def __getitem__(self, n: int, as_string: bool = False) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[str, str]]:
         src_txt = self.src_text_blocks[n]
         tgt_txt = self.tgt_text_blocks[n]
+        if as_string:
+            return src_txt, tgt_txt
         if self.crop_seqlen is not None:
             start_pos = random.randint(0, len(src_txt) - self.crop_seqlen - 1)           
             end_pos = start_pos + self.crop_seqlen

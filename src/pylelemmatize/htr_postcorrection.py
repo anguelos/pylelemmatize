@@ -1,4 +1,3 @@
-
 import sys
 from typing import Any, Dict
 
@@ -84,7 +83,6 @@ def main_train_substitution_only_postcorrection(argv=sys.argv, **kwargs: Dict[st
         if len(input) != len(target):
             raise ValueError(f" Mismatched line lengths found in inputs or targets.\nInput: {repr(input)}\nTarget: {repr(target)}")
 
-
     ds = Seq2SeqDs(text_blocks=(inputs, targets))
     
     print(f"Dataset loaded: Items {len(ds)}, CER {ds.compute_ds_CER():.4f}% , Input alphabet: {ds.input_mapper.src_alphabet_str}, Output alphabet: {ds.output_mapper.src_alphabet_str}")
@@ -142,7 +140,6 @@ def main_postcorrection_infer():
     from pylelemmatize.util import print_err
     import sys
     import tqdm
-
     p = {
         "input_textlines": "",
         "output_textlines": "",
@@ -261,3 +258,4 @@ def main_create_postcorrection_tsv():
     output_fd.flush()
     if args.verbose:
         print(f"Processed {ed_rejected + kept} lines, kept {kept}, rejected {ed_rejected} lines for edit distance > {args.max_edit_distance_tolerated} in {time.time() - t:.2f} sec.", file=sys.stderr)
+    

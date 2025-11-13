@@ -41,8 +41,6 @@ def fast_cer(pred: str, true: str) -> float:
     return np.mean(np_pred != np_true)
 
 
-
-
 class AbstractLemmatizer(ABC):
     """Abstract base class for lemmatizers that map characters from a source alphabet to a destination alphabet.
     

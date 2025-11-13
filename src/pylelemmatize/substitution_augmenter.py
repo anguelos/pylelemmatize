@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Tuple, Union
 import numpy as np
+import torch
 from .fast_mapper import LemmatizerBMP
 import pickle
 
@@ -238,12 +239,32 @@ class CharConfusionMatrix:
         self.alphabet = alphabet
         self.cm = np.zeros((len(self.alphabet), len(self.alphabet)), dtype=int)
 
-
     def get_matrix(self) -> np.ndarray:
         return self.cm
 
+    def distort_np_sequence(self, input_seq: np.ndarray) -> np.ndarray:
+        return self.generate_random_substitution_sequences(input_seq)
 
-
+    def distort_pt_sequence(self, input_seq: torch.Tensor) -> torch.Tensor:
+        input_np = input_seq.cpu().numpy()
+        distorted_np = self.generate_random_substitution_sequences(input_np)
+        return torch.from_numpy(distorted_np).to(input_seq.device)
+    
+    def distort_string(self, input_str: str) -> str:
+        dense_input = self.alphabet.str_to_intlabel_seq(input_str)
+        mutated = self.generate_random_substitution_sequences(dense_input)
+        return self.alphabet.intlabel_seq_to_str(mutated)
+    
+    def __call__(self, seq: Union[np.ndarray, torch.Tensor, str]) -> Union[np.ndarray, torch.Tensor, str]:
+        if isinstance(seq, np.ndarray):
+            return self.distort_np_sequence(seq)
+        elif isinstance(seq, torch.Tensor):
+            return self.distort_pt_sequence(seq)
+        elif isinstance(seq, str):
+            return self.distort_string(seq)
+        else:
+            raise ValueError(f"Unsupported input type: {type(seq)}")
+        
 
 # def create_substitutiononly_parallel_corpus(textlines: List[Tuple[str, str]]):
 #     alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in textlines]))))
@@ -272,6 +293,45 @@ def main_get_augmented_substitutiononly_parallel_corpus():
         #return
         pass
 
+
+class AugmentedSeq2SeqDsSubOnly():
+    def __init__(self, cm: Union[LemmatizerBMP, str, CharConfusionMatrix]):
+        if isinstance(cm,  CharConfusionMatrix):
+            self.conf_mat = cm
+        elif isinstance(cm, (str, LemmatizerBMP)):
+            self.cm = CharConfusionMatrix(alphabet= cm)
+        else:
+            raise ValueError(f"Wrong type for cm")
+
+    def ingest_textline_observation(self, pred_line: str, gt_line: str) -> Tuple[str, int]:
+        if self.input_is_output:
+            self.textlines.append((gt_line, pred_line))
+        else:
+            self.textlines.append((pred_line, gt_line))
+        return super().ingest_textline_observation(pred_line, gt_line)
+
+    def __getitem__(self, index: int, as_string: bool = False) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[str, str]]:
+        src_str, tgt_str = self.textlines[index]
+        src_np = self.alphabet.str_to_intlabel_seq(src_str)
+        tgt_np = self.alphabet.str_to_intlabel_seq(tgt_str)
+        augmented_src_np = self.generate_random_substitution_sequences(src_np)
+        
+        src_dense_labels = torch.from_numpy(augmented_src_np).long()
+        tgt_dense_labels = torch.from_numpy(tgt_np).long()
+        src_dense_labels = torch.tensor(src_dense_labels.astype(np.int64), dtype=torch.int64)
+        tgt_dense_labels = torch.tensor(tgt_dense_labels.astype(np.int64), dtype=torch.int64)
+        if self.input_is_onehot:
+            res_src = self.__labels_to_onehot(src_dense_labels, self.input_mapper.len()-1)
+        else:
+            res_src = src_dense_labels
+        if self.output_is_onehot:
+            res_tgt = self.__labels_to_onehot(tgt_dense_labels, self.output_mapper.len()-1)
+        else:
+            res_tgt = tgt_dense_labels
+        return res_src, res_tgt
+    
+    def __len__(self) -> int:
+        return len(self.textlines)
 
 
 def main_textline_full_cer():
