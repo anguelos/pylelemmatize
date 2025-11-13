@@ -162,6 +162,10 @@ O demmaper can be use on streams or files
 ```bash
 echo 'a da nat knaw what ta saa. bat a knaw what ta thank.' |ll_infer_one2one -model_path ./tmp/models/toy_model.pt
 ```
+Output:
+```console
+I do not know what to say, but a know what to think,
+```
 
 
 ## Development
