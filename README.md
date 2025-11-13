@@ -5,7 +5,7 @@
     <!-- Used by Sphinx (relative path inside docs/) -->
     <source srcset="../../../docs/_static/images/logo.png">
     <!-- Used by GitHub / PyPI -->
-    <img alt="PyLemmatize" src="https://github.com/yourusername/yourrepo/raw/main/docs/_static/images/logo.png" width="640">
+    <img alt="PyLemmatize" src="https://raw.githubusercontent.com/anguelos/pylelemmatize/main/docs/_static/images/logo.png" width="640">
   </picture>
 </p>
 
