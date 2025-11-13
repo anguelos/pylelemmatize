@@ -61,9 +61,11 @@ class LemmatizerBMP(GenericLemmatizer):
             If any character in `mapping_dict` keys or values, or `unknown_chr`, is not a BMP character.
             If `unknown_chr` is present in `mapping_dict` but does not map to itself.
         """
-        assert all([ord(c) < 65536 for c in mapping_dict.keys()]), "All keys in mapping_dict must be BMP characters."
-        assert all([ord(c) < 65536 for c in mapping_dict.values()]), "All values in mapping_dict must be BMP characters."
-        assert ord(unknown_chr) < 65536, "unknown_chr must be a BMP character."
+        if any([ord(c) >= 65536 for c in mapping_dict.keys()]) or \
+                any([ord(c) >= 65536 for c in mapping_dict.values()]) or \
+                ord(unknown_chr) >= 65536:
+            raise ValueError("LemmatizerBMP can only handle BMP characters. Please use GenericLemmatizer for non-BMP characters.")
+
         if unknown_chr in mapping_dict:
             assert mapping_dict[unknown_chr] == unknown_chr, "unknown_chr must map to itself in the mapping_dict."
             del mapping_dict[unknown_chr]  # Remove the unknown character from the mapping to avoid confusion

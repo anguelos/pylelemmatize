@@ -1,5 +1,7 @@
 from typing import Dict, List
 
+import numpy as np
+
 
 from .charset_iso import get_encoding_dicts as get_iso_encoding_dicts
 from .charset_mes import get_encoding_dicts as get_mes_encoding_dicts
@@ -24,15 +26,32 @@ class Charsets:
     """
     def __init__(self):
         self.lib_cache__ = {}
-        self.alphabets = ["mes1", "mes2", "mes3a", "mes3b",
-                     "iso_8859_1", "iso_8859_2", "iso_8859_3", "iso_8859_4",
+        self.bmp_alphabets = ["mes1", "mes2", "mes3a", "mes3b",
+                     #  "iso_8859_1", TODO (anguelos) see why this doesnt work
+                     "iso_8859_2", "iso_8859_3", "iso_8859_4",
                      "iso_8859_5", "iso_8859_6", "iso_8859_7", "iso_8859_8",
-                     "iso_8859_9", "iso_8859_10", "iso_8859_11", "iso_8859_12", "iso_8859_13",
+                     "iso_8859_9", "iso_8859_10", "iso_8859_11", 
+                     #"iso_8859_12", 
+                     "iso_8859_13",
                      "iso_8859_14", "iso_8859_15", "iso_8859_16",
-                     "ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits",
+                     "ascii", "ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits",
                      "hexdigits", "octdigits", "punctuation",
-                     "bmp_mufi", "bmp_pua_mufi", "nonbmp_mufi",
-                     "nonbmp_pua_mufi"]
+                     "mufibmp", "mufibmp_pua"]
+        self.nonbmp_alphabets = ["mufinonbmp", "mufinonbmp_pua"]
+        self.alphabets = self.bmp_alphabets + self.nonbmp_alphabets
+    
+    def __getitem__(self, charset: str) -> str:
+        if charset in self.alphabets:
+            return self.__dict__(charset)
+    
+    def __len__(self) -> int:
+        return len(self.alphabets)
+    
+    def keys(self) -> List[str]:
+        return [k for k in self.alphabets]
+    
+    def values(self) -> List[str]:
+        return [self[k] for k in self.keys()]
 
     @property
     def mes_charsets(self):
@@ -156,6 +175,23 @@ class Charsets:
     def mufinonbmp_pua(self):
         return self.mufinonbmp_charsets["nonbmp_pua_mufi"]
 
+    @property
+    def full_bmp(self):
+        cp = np.arange(0x10000, dtype=np.uint16)
+        mask = (
+                ((cp < 0xD800) | (cp > 0xDFFF)) &    # no surrogates
+                ((cp < 0xE000) | (cp > 0xF8FF)) &    # no PUA
+                ~(((0xFDD0 <= cp) & (cp <= 0xFDEF)) | ((cp & 0xFFFE) == 0xFFFE))  # no nonchars
+            )
+        return cp[mask].tobytes().decode("utf-16le")
+    
+    @property
+    def greek_polytonic(self):
+        r1 = np.arange(0x0370, 0x0400, dtype=np.uint16)  # Greek & Coptic
+        r2 = np.arange(0x1F00, 0x2000, dtype=np.uint16)  # Greek Extended
+        greek_polytonic_characters = np.concatenate([r1, r2]).tobytes().decode("utf-16le")
+        return greek_polytonic_characters
+
     def __getitem__(self, item):
         return getattr(self, item)
     
@@ -179,6 +215,7 @@ def main_map_test_corpus_on_alphabets():
     import fargv, glob, time, sys, tqdm
     from matplotlib import pyplot as plt
     from .util import generate_corpus
+    charsets = Charsets()
 
     def plot_covverage(corpus_str, encoding_alphabet_strings, alphabet_to_cer: Dict[str, float], alphabet_to_missing: Dict[str, str], alphabet_to_unfound: Dict[str, str], save_plot_path: str, show_plot: bool):
         fig, ax = plt.subplots(3, 1, figsize=(15, 10))
@@ -205,7 +242,7 @@ def main_map_test_corpus_on_alphabets():
 
     t = time.time()
     p = {
-        "alphabets": ["ascii", f"A comma separated listof encodings must be a subset of {repr(allbmp_encoding_alphabet_strings.keys())}. Or 'all'"],
+        "alphabets": ["ascii", f"A comma separated listof encodings must be a subset of {repr(charsets.bmp_alphabets)}. Or 'all'"],
         "corpus_glob": "",
         "corpus_files": set([]),
         "verbose": False,
@@ -218,7 +255,7 @@ def main_map_test_corpus_on_alphabets():
     args, _ = fargv.fargv(p)
 
     if args.alphabets == "all":
-        args.alphabets = list(allbmp_encoding_alphabet_strings.keys())
+        args.alphabets = list(charsets.bmp_alphabets)
     else:
         args.alphabets = [a.strip() for a in args.alphabets.split(',')]
 
@@ -232,7 +269,7 @@ def main_map_test_corpus_on_alphabets():
         corpus_files = set([])
 
     all_corpus_strs = []
-    for file_contnets in generate_corpus(glob_files | corpus_files, verbose=args.verbose,
+    for file_contnets in generate_corpus(set(glob_files) | set(corpus_files), verbose=args.verbose,
                                          strip_xml=args.strip_xml, treat_all_file_as_xml=args.all_is_xml):
         all_corpus_strs.append(file_contnets)
     found_corpus_str = ''.join(all_corpus_strs)
@@ -249,10 +286,10 @@ def main_map_test_corpus_on_alphabets():
     alphabet_to_missing = {}
     alphabet_to_unfound = {}
     for alphabet_name in alphabet_names:
-        if alphabet_name not in allbmp_encoding_alphabet_strings:
-            raise ValueError(f"Alphabet {alphabet_name} not in {allbmp_encoding_alphabet_strings.keys()}")
+        if alphabet_name not in charsets.bmp_alphabets:
+            raise ValueError(f"Alphabet {alphabet_name} not in {charsets.bmp_alphabets}")
 
-        alphabet_str = allbmp_encoding_alphabet_strings[alphabet_name]
+        alphabet_str = charsets[alphabet_name]
         if max(alphabet_str) > '\uffff':
             #alphabet = Alphabet(alphabet_str=alphabet_str, vectorized_mapper_sz=max(256**2, 1 + ord(max(alphabet_str))))  #  This is a hack to ensure that the vectorized mapper is large enough for all characters in MUFI
             alphabet = GenericLemmatizer.from_alphabet_mapping(alphabet_str, mapping_dict=None)
@@ -279,4 +316,4 @@ def main_map_test_corpus_on_alphabets():
 
     if not args.hide_plot or args.save_plot_path != "":
         found_corpus_alphabet_str = ''.join(sorted(set(found_corpus_str)))
-        plot_covverage(found_corpus_alphabet_str, allbmp_encoding_alphabet_strings, alphabet_to_cer, alphabet_to_missing, alphabet_to_unfound, args.save_plot_path, not args.hide_plot)
+        plot_covverage(found_corpus_alphabet_str, charsets.bmp_alphabets, alphabet_to_cer, alphabet_to_missing, alphabet_to_unfound, args.save_plot_path, not args.hide_plot)

@@ -2,9 +2,7 @@ from typing import Dict, Literal, Optional
 from .char_distance import char_similarity
 from .abstract_mapper import AbstractLemmatizer, GenericLemmatizer, fast_cer, fast_numpy_to_str, fast_str_to_numpy
 from .fast_mapper import LemmatizerBMP
-#from .charset import allbmp_encoding_alphabet_strings, allnonbmp_encoding_alphabet_strings, main_map_test_corpus_on_alphabets
 
-#from .charset import chr_iso, chr_mes, chr_ascii, chr_mufi_bmp, chr_mufi_nonbmp
 from .all_charsets import Charsets
 charsets = Charsets()
 
@@ -48,7 +46,7 @@ def llemmatize(txt: str, dst_alphabet_str: str, **kwargs) -> str:
 
 __all__ = ["llemmatizer", "llemmatize", "AbstractLemmatizer", "GenericLemmatizer", "LemmatizerBMP",
            "char_similarity", "fast_cer", "fast_numpy_to_str", "fast_str_to_numpy",
-           "Charsets", "charset",
+           "Charsets", "charsets",
            "extract_transcription_from_page_xml", "print_err",
            "CharConfusionMatrix", "__version__"]
 

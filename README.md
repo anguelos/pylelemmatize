@@ -15,29 +15,14 @@ PyLeLemmatize is a Python package for lemmatizing characters. It provides a simp
 
 ## Installation
 
-### Install pypi
+### Install from pypi
 
 To install PyLemmatize from Pypi:
 
 ```sh
 pip install pylelemmatize
 ```
-
-### Install from GitHub with code
-
-To install PyLemmatize from the source code, follow these steps:
-
-1. Clone the repository:
-2. Navigate to the project directory:
-3. Install the package
-
-```sh
-git clone https://github.com/yourusername/pylelemmatize.git
-cd pylelemmatize
-pip install -e ./  
-# If you dont want a development install, do pip install ./
-```
-
+for installation for coding, look at [development](### Development Installation)
 
 ## Python Usage
 
@@ -51,6 +36,7 @@ print(f"Polytonic   : {greek_poly_string}")
 print(f"Modern Greek: {llemmatize(greek_poly_string, charsets.iso_8859_7)}")
 print(f"ASCII       : {llemmatize(greek_poly_string, charsets.ascii)}")
 ```
+Output:
 ```console
 Polytonic   : Καὶ ὅτε ἤνοιξεν τὴν σφραγῖδα τὴν ἑβδόμην, ἐγένετο σιγὴ ἐν τῷ οὐρανῷ ὡς ἡμιώριον.
 Modern Greek: Καί ότε ήνοιξεν τήν σφραγίδα τήν έβδόμην, έγένετο σιγή έν τώ ούρανώ ώς ήμιώριον.
@@ -84,7 +70,7 @@ for inp_str in [greek_poly_string, greek_poly_string * 1000, greek_poly_string *
     modern_greek_str =  polytonic2modern_greek(inp_str)
     %timeit modern_greek_str =  mes2ascii(inp_str)
 ```
-
+Output:
 ```console
 Creating autoaligned llemmatizers O(|src_alphabet|x|dst_alphabet|)
 Medium llemmatizer: |34|x|186|
@@ -107,12 +93,11 @@ String size: 80000000
 521 ms ± 13.2 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 ```
 
-### Simple letter lemmatization
 
 
 ## Command Line Invocation
 
-#### Evaluate Merges
+### Evaluate Merges
 
 ```sh
 ll_evaluate_merges -h # get help string with the cli interface
@@ -120,24 +105,79 @@ ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_ch
 ```
 
 Attention the merge CER is not symetric at all!
-```
+```bash
 # The following gives a CER of 0.0591
 ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("I", "J"), ("i", "j")]'
 # While the following gives a CER of 0.0007
 ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("J", "I"), ("j", "i")]'
 ```
 
-#### Extract corpus alphabet
-```sh
+### Extract corpus alphabet
+```bash
 ll_extract_corpus_alphabet -h # get help string with the cli interface
 ll_extract_corpus_alphabet -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*'
 ```
 
-#### Test corpus on alphabets
-```sh
+### Test corpus on alphabets
+```bash
 ll_test_corpus_on_alphabets -h # get help string with the cli interface
 ll_test_corpus_on_alphabets -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*' -alphabets 'bmp_mufi,ascii,mes1,iso8859_2' -verbose
 ```
+
+### Demapping
+
+#### Setup
+```bash
+mkdir -p tmp/models
+wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt -O ./tmp/tinyshakespeare.txt
+cat ./tmp/tinyshakespeare.txt |shuf  --random-source ./tmp/tinyshakespeare.txt > ./tmp/tinyshakespeare_shuf.txt
+head -n 1000 ./tmp/tinyshakespeare_shuf.txt > ./tmp/tinyshakespeare_test.txt
+tail -n +1001 ./tmp/tinyshakespeare_shuf.txt > ./tmp/tinyshakespeare_exper.txt
+```
+
+#### Train a demapper
+GPU is automatically employed if found
+```bash
+ll_train_one2one -corpus_files ./tmp/tinyshakespeare_exper.txt -output_model_path ./tmp/models/toy_model.pt -input_alphabet '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!",.:;? ' -output_alphabet '0abcdfghjklmnpqrstvwxz.' -nb_epochs 3
+```
+If a model has not been trained until nb_epochs, the training resumes.
+```bash
+ll_train_one2one -corpus_files ./tmp/tinyshakespeare_exper.txt -output_model_path ./tmp/models/toy_model.pt -input_alphabet '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!",.:;? ' -output_alphabet '0abcdfghjklmnpqrstvwxz.' -nb_epochs 50
+```
+
+#### Use a demapper
+O demmaper can be use on streams or files
+```bash
+echo 'a da nat knaw what ta saa. bat a knaw what ta thank.' |ll_infer_one2one -model_path ./tmp/models/toy_model.pt
+```
+
+
+## Development
+
+### Development Installation
+For extending pylelemmatize, install from github.
+```bash
+git clone git@github.com:anguelos/pylelemmatize.git
+cd pylelemmatize
+pip install -r requirements
+pip install -r ./docs/requirements.txt
+pip install -e .
+```
+This will install pylelemmatize on your system in development mode.
+
+### Testing
+#### Running the unit tests
+```bash
+pytest --cov ./src/pylelemmatize/ ./test/pytest/
+```
+
+#### Running shell script tests
+
+This will run all bash scripts with -h essetially checking syntax and imports
+```bash
+./test/test_shell_scripts.sh
+```
+
 
 
 <p align="center">

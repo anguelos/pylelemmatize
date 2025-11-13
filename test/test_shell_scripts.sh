@@ -4,6 +4,7 @@
 # The actual output of each script is not tested here. The scripts are all launched
 # with the -h option to ensure they can start properly.
 # This testcase requires the package to be installed in the environment where it is run.
+echo "Testing shell scripts... for syntax and imports"
 
 ll_render_char_similarity_tree -h 2>/dev/null || (echo "ll_render_char_similarity_tree \033[0;31mFAILED\033[0m" && exit 1)
 echo "ll_render_char_similarity_tree \033[0;32mOK\033[0m"

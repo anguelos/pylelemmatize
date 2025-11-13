@@ -13,7 +13,7 @@ from .util import print_err
 
 class DemapperLSTM(torch.nn.Module):
     def __init__(self, input_mapper: Union[str, LemmatizerBMP], output_mapper: Union[str, LemmatizerBMP], hidden_sizes: List[int]=[128, 128, 128], 
-                 dropouts: Union[List[float], float] = 0., directions: Union[Literal[-1, 0, 1], List[Literal[-1, 0, 1]]] = 0):
+                 dropouts: Union[List[float], float] = 0., directions: Union[Literal[-1, 0, 1], List[Literal[-1, 0, 1]]] = 0, output_to_input_mapping: Optional[Dict[str, str]] = None):
         super(DemapperLSTM, self).__init__()
         assert all([sz%2 == 0 for sz in hidden_sizes]), f"All hidden sizes must be even numbers. {hidden_sizes}"
         if isinstance(input_mapper, str):
@@ -68,7 +68,14 @@ class DemapperLSTM(torch.nn.Module):
         #    self.out_fc = torch.nn.Linear(hidden_sizes[-1]* 2, len(output_alphabet)+1)
         #else:
         self.out_fc = torch.nn.Linear((hidden_sizes[-1]//2) * 2, len(output_mapper)+1)
-        self.history = {'train_loss': [], 'valid_loss': {}, 'train_acc': [], 'valid_acc': {}, 'args': {}, 'time_per_epoch': {0:time.time()}, 'best_weights': self.state_dict()}
+        if output_to_input_mapping is not None:
+            assert set(output_to_input_mapping.keys()).issubset(set(output_mapper.src_alphabet_str))
+            assert set(output_to_input_mapping.values()).issubset(set(input_mapper.src_alphabet_str))
+            self.output_to_input_mapping = output_to_input_mapping
+        else:
+            lemmatizer = LemmatizerBMP.from_alphabet_mapping(output_mapper.src_alphabet_str, input_mapper.src_alphabet_str)
+            self.output_to_input_mapping = lemmatizer.mapping_dict
+        self.history = {'train_loss': [], 'valid_loss': {}, 'train_acc': [], 'valid_acc': {}, 'args': {}, 'time_per_epoch': {0:time.time()}, 'best_weights': self.state_dict(), 'output_to_input_mapping': self.output_to_input_mapping }
         #print(f"Constructor {[layer.input_size for layer in self.lstm_layers]} -> {[layer.hidden_size for layer in self.lstm_layers]} and dropouts {dropout_vals}")
 
     @property
@@ -158,10 +165,11 @@ class DemapperLSTM(torch.nn.Module):
         model = cls(input_mapper=input_mapper, output_mapper=output_mapper, 
                     hidden_sizes=hidden_sizes, dropouts=dropouts)
         if "best_weights" in checkpoint['history'] and resume_best_weights:
-            model.load_state_dict(checkpoint['best_weights'])
+            model.load_state_dict(checkpoint['history']['best_weights'])
         else:
             model.load_state_dict(checkpoint['state_dict'])
         model.history = checkpoint['history']
+        model.output_to_input_mapping = model.history.get('output_to_input_mapping', {})
         return model
     
     @classmethod
@@ -207,6 +215,12 @@ class DemapperLSTM(torch.nn.Module):
                 total_lengths += tgt_tensor_labels.numel()
         self.history['valid_loss'][self.epoch] = total_loss / len(valid_ds)
         acc = total_correct / total_lengths if total_lengths > 0 else 0.0
+        if acc > max(self.history['valid_acc'].values(), default=-1.0):
+            self.history["best_weights"] = self.state_dict()
+        #    print(f"New best validation accuracy: {acc:.6f} at epoch {self.epoch}", file=sys.stderr)
+        else:
+        #    print(f"Validation accuracy: {acc:.6f} at epoch {self.epoch} Not best! {self.history['valid_acc'].values()}", file=sys.stderr)
+            pass
         self.history['valid_acc'][self.epoch] = acc
         return self.history['valid_loss'][self.epoch], self.history['valid_acc'][self.epoch]
 
@@ -257,7 +271,8 @@ class DemapperLSTM(torch.nn.Module):
                 f"\nTrain Accuracy: {self.history['train_acc'][-1] if self.history['train_acc'] else 'N/A'} \n" \
                 f"Valid Accuracy: {self.history['valid_acc'].get(self.epoch, 'N/A')} \n" \
                 f"Train Loss: {self.history['train_loss'][-1] if self.history['train_loss'] else 'N/A'} \n" \
-                f"Valid Loss: {self.history['valid_loss'].get(self.epoch, 'N/A')} \n"
+                f"Valid Loss: {self.history['valid_loss'].get(self.epoch, 'N/A')} \n" \
+                f"Output to input mapping: [{', '.join(f'{repr(k)}->{repr(v)}' for k, v in self.output_to_input_mapping.items())}]\n"
 
 
 def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
@@ -271,7 +286,6 @@ def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
     import pylelemmatize
     import numpy as np
     import random
-    
 
     p = {
         #"input_alphabet": allbmp_encoding_alphabet_strings["bmp_mufi"],
@@ -438,6 +452,7 @@ def main_infer_one2one(model_path: str ="./tmp/models/model.pt",
                        allow_overwrite:  bool = False,
                        append_output: bool = False,
                        add_newline: bool = False,
+                       verbose: bool = False,
                        new_line_separator: bool = False):
     p = locals()
     import fargv
@@ -447,25 +462,18 @@ def main_infer_one2one(model_path: str ="./tmp/models/model.pt",
     import tqdm
     import sys
 
-    # p = {
-    #     "model_path": "./tmp/models/model.pt",
-    #     "s" : "",
-    #     "input_file": "stdin",
-    #     "device": "cuda" if torch.cuda.is_available() else "cpu",
-    #     "print_line_count": False,
-    #     "print_line_inputs": False,
-    #     "print_line_rawinputs": False,
-    #     "output_file": "stdout",
-    #     "resume_last_weights": False,
-    #     "allow_overwrite": False,
-    #     "append_output": False,
-    #     "add_newline": False,
-    #     "new_line_separator": False,
-    # }
     args, _ = fargv.fargv(p)
     net = DemapperLSTM.resume(args.model_path, resume_best_weights=(not args.resume_last_weights))
+    if args.verbose:
+        print(f"Loaded model: {str(net)}", file=sys.stderr)
     net = net.to(args.device)
     net.eval()
+    demmaping_dict=  net.output_to_input_mapping.copy()
+    demmaping_dict.update({c: c for c in net.input_mapper.src_alphabet_str})
+    preprocessor = LemmatizerBMP(mapping_dict=demmaping_dict, unknown_chr='�')
+    if args.verbose:
+        print(f"Preprocessor: {repr(preprocessor)}", file=sys.stderr)
+
     def get_lines():
         if args.s != "":
             assert args.input_file in ["stdin", ""], "input_file must be 'stdin' or '' (empty string) if input_str is provided"
@@ -493,7 +501,9 @@ def main_infer_one2one(model_path: str ="./tmp/models/model.pt",
     column_separator = '\n' if args.new_line_separator else '\t'
     with torch.no_grad():
         for n, raw_line in enumerate(get_lines()):
-            line = net.input_mapper(raw_line)
+            line = preprocessor(raw_line)
+            if args.verbose:
+                print(f"Processing line {n+1}: {raw_line}", flush=True, file=sys.stderr)
             #print(f"Processing line {n+1}: {line}", flush=True, file=sys.stderr)
             if args.print_line_count:
                 print(f"{n}{column_separator}", end='', file=out_fd)
@@ -504,7 +514,16 @@ def main_infer_one2one(model_path: str ="./tmp/models/model.pt",
             if len(line) == 0:
                 output = ""
             else:
-                output = net.infer_str(line)
+                if not args.verbose:
+                    output = net.infer_str(line, device=args.device)
+                else:
+                    output, confidence = net.infer_str(line, device=args.device, return_confidence=True)
+                    correct = (np.array(list(output)) == np.array(list(raw_line)))
+                    print("IN >",line, file=sys.stderr)
+                    print("GT >",raw_line, file=sys.stderr)
+                    print("OUT> ", end='', file=sys.stderr)
+                    print_err(output, correct=correct, confidence=confidence, file=sys.stderr)
+
             print(output, flush=True, file=out_fd)
             if args.add_newline:
                 print("", flush=True, file=out_fd)
