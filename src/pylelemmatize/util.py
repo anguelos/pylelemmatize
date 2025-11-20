@@ -1,6 +1,6 @@
 import re
 from typing import Generator, Literal, Set, Union, List
-from anyio import Path
+from pathlib import Path
 import tqdm
 import sys
 
