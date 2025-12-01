@@ -1,14 +1,11 @@
 from typing import List, Tuple
 import pytest
 import torch
-from pylelemmatize.many_to_more import ManyToMoreDS, align_sub_strings, banded_edit_path, collate_many_to_more_seq2seq
-import sys
+from pylelemmatize.many_to_more import ManyToMoreCollatorSeq2Seq, ManyToMoreDS, align_sub_strings, banded_edit_path
 import numpy as np
-
 
 # Genomic alphabets are prefered for testing as they have small size and are well known
 # Normally everything should extend to any alphabet. TODO (anguelos): add tests for larger alphabets
-
 
 
 debug_banded_edit_path = False  # enable this and run this tescase with pytest -s -x to debug output
@@ -144,10 +141,10 @@ def test_create_from_aligned_textlines(line_pairs: List[Tuple[str, str]], allow_
             [[1] + [0] * 7, [0] * 8, [3] + [0] * 7, [4] + [0] * 7],
             [[1] + [0] * 7, [2] + [0] * 7, [3, 1, 3, 1, 3, 0, 0, 0], [4] + [0] * 7]]],
 ])
-def test_collate_many_to_more_seq2seq(textlines, max_unalignement, batch_inputs, batch_outputs):
+def test_many_to_more_collator_seq2seq(textlines, max_unalignement, batch_inputs, batch_outputs):
     ds = ManyToMoreDS.create_from_aligned_textlines(line_pairs=textlines, min_src_len=3, min_tgt_len=3)
     assert len(ds) == len(textlines)  # Sanity check: All input output pairs became part of the dataset
-    collator = lambda batch: collate_many_to_more_seq2seq(batch, max_unalignemet=max_unalignement)
+    collator = ManyToMoreCollatorSeq2Seq(max_unalignment=max_unalignement)
     dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False, collate_fn=collator)
     for i, batch in enumerate(dl):
         srcs_tensor, tgts_tensor = batch

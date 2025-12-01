@@ -15,7 +15,7 @@ class DemapperLSTM(torch.nn.Module):
     def __init__(self, input_mapper: Union[str, LemmatizerBMP], output_mapper: Union[str, LemmatizerBMP], hidden_sizes: List[int]=[128, 128, 128], 
                  dropouts: Union[List[float], float] = 0., directions: Union[Literal[-1, 0, 1], List[Literal[-1, 0, 1]]] = 0, output_to_input_mapping: Optional[Dict[str, str]] = None):
         super(DemapperLSTM, self).__init__()
-        assert all([sz%2 == 0 for sz in hidden_sizes]), f"All hidden sizes must be even numbers. {hidden_sizes}"
+        assert all([int(sz)%2 == 0 for sz in hidden_sizes]), f"All hidden sizes must be even numbers. {repr(hidden_sizes)} given."
         if isinstance(input_mapper, str):
             input_mapper = LemmatizerBMP(mapping_dict={c: c for c in input_mapper}, unknown_chr='�')
         if isinstance(output_mapper, str):
@@ -224,7 +224,6 @@ class DemapperLSTM(torch.nn.Module):
         self.history['valid_acc'][self.epoch] = acc
         return self.history['valid_loss'][self.epoch], self.history['valid_acc'][self.epoch]
 
-
     def train_one2one_epoch(self, train_ds: Seq2SeqDs, criterion: torch.nn.Module, optimizer: torch.optim.Optimizer, batch_size: int = 1, pseudo_batch_size: int = 1, progress: bool = True) -> Tuple[float, float]:
         if batch_size > 1:
             raise NotImplementedError("Batch training is not implemented for DemapperLSTM. Use single instance training.")
@@ -263,7 +262,8 @@ class DemapperLSTM(torch.nn.Module):
         return self.history['train_loss'][-1], self.history['train_acc'][-1]
 
     def __repr__(self) -> str:
-        return f"DemapperLSTM(input_alphabet={repr(self.input_mapper.src_alphabet_str)}, output_alphabet={repr(self.output_mapper.src_alphabet_str)}, " \
+        classname = self.__class__.__name__
+        return f"{classname}(input_alphabet={repr(self.input_mapper.src_alphabet_str)}, output_alphabet={repr(self.output_mapper.src_alphabet_str)}, " \
                f"hidden_sizes={repr(self.hidden_sizes)}, dropout={repr(self.dropout_list)})"
     
     def __str__(self):
@@ -378,7 +378,7 @@ def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
     net = DemapperLSTM.resume(args.output_model_path, 
                                 input_alphabet_str=train_ds.input_mapper.src_alphabet_str, 
                                 output_alphabet_str=train_ds.output_mapper.src_alphabet_str,
-                                hidden_sizes=args.hidden_sizes, 
+                                hidden_sizes=args.hidden_sizes,
                                 dropouts=args.dropouts, resume_best_weights=args.resume_best_weights)
     assert net.is_compatible(train_ds), "The model is not compatible with the training dataset."
     assert net.is_compatible(valid_ds), "The model is not compatible with the validation dataset."

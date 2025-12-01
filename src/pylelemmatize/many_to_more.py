@@ -1,7 +1,9 @@
+from abc import ABC, abstractmethod, abstractmethod
 from collections import defaultdict
 import random
 import sys
-from typing import Dict, Optional, Union, Tuple, List
+import time
+from typing import Any, Dict, Literal, Optional, Union, Tuple, List
 import re
 import unicodedata
 from pathlib import Path
@@ -9,9 +11,12 @@ import numpy as np
 from math import inf
 
 import torch
-import tqdm
+from torch import Tensor
+from tqdm import tqdm
 
+from pylelemmatize.demapper_lstm import DemapperLSTM
 from pylelemmatize.fast_mapper import LemmatizerBMP, fast_numpy_to_str, fast_str_to_numpy
+from pylelemmatize.mapper_ds import Seq2SeqDs
 from .abstract_mapper import AbstractLemmatizer, fast_str_to_numpy
 from lxml import etree
 
@@ -22,52 +27,6 @@ from lxml import etree
 # The code should be read with this convention in mind. And variable namings like is_ins, is_del, etc. 
 # MUST reflect this convention.
 # This also applies to unitests about these fille
-
-
-def pagexml_to_text(pagexml_path: str) -> str:
-    """
-    Converts a PAGE XML string to plain text.
-
-    Parameters:
-    pagexml (str): The PAGE XML content as a string.
-
-    Returns:
-    str: The extracted plain text.
-    """
-    pagexml = open(pagexml_path, "r").read()
-    xml_bytes = pagexml.encode("utf-8")
-    root = etree.fromstring(xml_bytes)
-    texts = []
-    for unicode_text in root.xpath(".//*[local-name()='Unicode']"):
-        texts.append(unicode_text.text or "")
-    return "\n".join(texts)
-
-
-def get_textlines(filepath: str, assume_txt=False, strip_empty_lines=True) -> List[str]:
-    if filepath.lower().endswith(".xml") or filepath.lower().endswith(".pagexml"):
-        res = pagexml_to_text(filepath).split("\n")
-    elif filepath.lower().endswith(".txt") or assume_txt:
-        res = open(filepath, "r").read().split("\n")
-    else:
-        raise f"Can't open {filepath}"
-    if strip_empty_lines:
-        res = [line for line in res if len(line)]
-    res = [unicodedata.normalize("NFC", s) for s in res]
-    return res
-
-
-def load_textline_pairs(filelist1: List[str], filelist2: List[str]) -> List[Tuple[str, str]]:
-    assert len(filelist1) == len(filelist2)
-    res = []
-    for file1, file2 in zip(sorted(filelist1), sorted(filelist2)):
-        lines1 = get_textlines(file1)
-        lines2 = get_textlines(file2)
-        if len(lines1) == len(lines2):
-            for line1, line2 in zip(lines1, lines2):
-                res.append((line1, line2))
-        else:
-            print(f"Unaligned {file1} {file2} with {len(lines1)} vs {len(lines2)} lines", file=sys.stderr)
-    return res
 
 
 def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int, add_null_initial: bool = True) -> Tuple[np.ndarray, np.ndarray, Tuple[np.array, np.array, np.array, np.array]]:
@@ -259,7 +218,17 @@ def align_sub_strings(a: str, b: str, band:int = 80) -> List[Tuple[str, str]]:
     return merged_insertions
 
 
-class ManyToMoreDS:
+def cer(seq1: np.ndarray, seq2: np.ndarray, band=-1, normalize=False) -> float:
+    if band<1:
+        band = max(seq1.size, seq2.size)
+    _, costs, (_, _, _, _) = banded_edit_path(seq1, seq2, band=band)
+    if normalize:
+        return float(costs.sum()) / max(len(seq1), len(seq2))
+    else:
+        return float(costs.sum())
+
+
+class ManyToMoreDS():
     @staticmethod
     def create_from_aligned_textlines(line_pairs: List[Tuple[str, str]], min_src_len: int=10,
                           max_src_len: int=1000, min_tgt_len: int=10, max_tgt_len: int=1000, band: int = 70,
@@ -289,7 +258,7 @@ class ManyToMoreDS:
             print(f"After alphabet filtering: {len(textlines_appropriate_alphabets)} line pairs because of alphabet constraints.", file=sys.stderr)
             #print(f"Filtered {len(textlines_appropriate_sizes)} line pairs to {len(textlines_appropriate_alphabets)} line pairs because of length and alphabet constraints.", file=sys.stderr)
         if verbose:
-            progress = tqdm.tqdm(total=len(textlines_appropriate_alphabets), desc="Processing line pairs")
+            progress = tqdm(total=len(textlines_appropriate_alphabets), desc="Processing line pairs")
         for inp, out in textlines_appropriate_alphabets:
             if verbose:
                 progress.update(1)
@@ -319,8 +288,8 @@ class ManyToMoreDS:
         self.onehot_input = onehot_input
         self.onehot_output = onehot_output
         self.aligned_substrings = aligned_substrings
-        self.src_lemmatizer = LemmatizerBMP(src_alphabet)
-        self.tgt_lemmatizer = LemmatizerBMP(tgt_alphabet)
+        self.input_mapper = LemmatizerBMP(src_alphabet)
+        self.output_mapper = LemmatizerBMP(tgt_alphabet)
         self.return_torch = return_torch
         self.return_ctc = return_ctc
         self.max_unalignemet = max_unalignemet
@@ -343,9 +312,9 @@ class ManyToMoreDS:
 
         # src is a list contianing single sequence of all input characters concatenated
         # tgt is a list containing [every target substring as a separate sequence]
-        src: List[np.ndarray] = [self.src_lemmatizer.str_to_intlabel_seq(c) for c in src_parts]
+        src: List[np.ndarray] = [self.input_mapper.str_to_intlabel_seq(c) for c in src_parts]
         src = [np.concatenate(src, axis=0)]
-        tgt: List[np.ndarray] = [self.tgt_lemmatizer.str_to_intlabel_seq(c) for c in tgt_parts]  
+        tgt: List[np.ndarray] = [self.output_mapper.str_to_intlabel_seq(c) for c in tgt_parts]  
 
         if self.onehot_input:
             raise NotImplementedError("onehot_input is not implemented yet")
@@ -353,8 +322,8 @@ class ManyToMoreDS:
         if self.return_torch:            
             #print(f"input_lengths = {set([len(x) for x in src])}")
             #print(f"output_lengths = {set([len(x) for x in tgt])}")
-            src = [torch.tensor(seq).long().reshape(-1) for seq in src]
-            tgt = [torch.tensor(t).long() for t in tgt]
+            src = [Tensor(seq).long().reshape(-1) for seq in src]
+            tgt = [Tensor(t).long() for t in tgt]
         else:
             src = np.array(src, dtype=np.int16).reshape(-1)
             tgt = [np.array(t, dtype=np.int16) for t in tgt]
@@ -364,8 +333,8 @@ class ManyToMoreDS:
         data = {'aligned_substrings': self.aligned_substrings,
                 'onehot_input': self.onehot_input,
                 'onehot_output': self.onehot_output,
-                'src_alphabet': self.src_lemmatizer.src_alphabet_str,
-                'tgt_alphabet': self.tgt_lemmatizer.src_alphabet_str,
+                'src_alphabet': self.input_mapper.src_alphabet_str,
+                'tgt_alphabet': self.output_mapper.src_alphabet_str,
                 'return_torch': self.return_torch,
                 'return_ctc': self.return_ctc,
                 }
@@ -395,53 +364,130 @@ class ManyToMoreDS:
         except FileNotFoundError:
             return None
 
+    def shuffle(self) -> None:
+        idx = list(range(len(self)))
+        random.shuffle(idx)
+        self.aligned_substrings = [self.aligned_substrings[i] for i in idx]
 
-def collate_many_to_more_seq2seq(batch: List[Tuple[Union[np.ndarray, torch.Tensor],
-                                                   Union[np.ndarray, torch.Tensor]]],
-                                                   max_unalignemet: int=-1) -> Tuple[torch.Tensor, torch.Tensor]:
-    assert len(batch) == 1
-    srcs, tgts = zip(*batch)
-    assert len(srcs) == 1 and len(tgts) == 1    
-    srcs, tgts = srcs[0], tgts[0]
-    if max_unalignemet < 0:
-        max_unalignemet = max([len(tgt) for tgt in tgts])
-    tgts_tensor = torch.zeros((len(srcs), max_unalignemet + 1), dtype=torch.long)
-    for i, tgt in enumerate(tgts):
-        if len(tgt) > max_unalignemet:
-            raise RuntimeError(f"Target length {len(tgt)} exceeds max_unalignemet {max_unalignemet}")
-        tgts_tensor[i, :len(tgt)] = tgt
-    return srcs.unsqueeze(0), tgts_tensor
+    def split(self, train_ratio: float = 0.8, shuffle: bool = True) -> Tuple['Seq2SeqDs', 'Seq2SeqDs']:
+        assert 0 < train_ratio < 1, "Ratio must be between 0 and 1"
+        if shuffle:
+            self.shuffle()
+        split_idx = int(len(self) * train_ratio)
+        train_ds: ManyToMoreDS = ManyToMoreDS(
+            src_alphabet=self.input_mapper.src_alphabet_str,
+            tgt_alphabet=self.output_mapper.src_alphabet_str,
+            aligned_substrings=self.aligned_substrings[:split_idx],
+            onehot_input=self.onehot_input,
+            onehot_output=self.onehot_output,
+            return_torch=self.return_torch,
+            return_ctc=self.return_ctc)
+        val_ds: ManyToMoreDS = ManyToMoreDS(
+            src_alphabet=self.input_mapper.src_alphabet_str,
+            tgt_alphabet=self.output_mapper.src_alphabet_str,
+            aligned_substrings=self.aligned_substrings[split_idx:],
+            onehot_input=self.onehot_input,
+            onehot_output=self.onehot_output,
+            return_torch=self.return_torch,
+            return_ctc=self.return_ctc)
+        return train_ds, val_ds
 
 
-def many_to_more_main():
-    import fargv, glob
-    p = {
-        "inputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/abreviated/B*.xml")),
-        "outputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/unabreviated/B*.xml")),
-        "dataset_path": "./many_to_more_ds.pt",
-        "allow_start_insertions": False,
-        "band": 70,
-        "verbose": False,
-    }
-    args, _ = fargv.fargv(p)
-    if Path(args.dataset_path).is_file():
-        print(f"Dataset {args.dataset_path} already exists. Loading existing dataset.", file=sys.stderr)
-        dataset = ManyToMoreDS.load(args.dataset_path, allow_start_insertions=args.allow_start_insertions)
-    else:
-        print(f"Creating dataset at {args.dataset_path}", file=sys.stderr)
-        line_pairs = load_textline_pairs(sorted(args.inputs), sorted(args.outputs))
-        dataset = ManyToMoreDS.create_from_aligned_textlines(line_pairs=line_pairs, verbose=args.verbose, band=args.band, allow_start_insertions=args.allow_start_insertions)
-        dataset.save(args.dataset_path)
-    ds = ManyToMoreDS(src_alphabet="ACGT",
-                         tgt_alphabet="ACGT",
-                         aligned_substrings=[[("A", "A"), ("C", "C"), ("G", "G"), ("T", "T")],
-                                             [("A", ""), ("C", "C"), ("G", "G"), ("T", "T")],
-                                             [("A", "A"), ("C", "C"), ("G", "GGGG"), ("T", "T")]],
-                                             max_unalignemet=4)
-    #print(f"Dataset {args.dataset_path} loaded with {len(dataset)} samples.", file=sys.stderr)
-    print(f"Dataset[0]: ", repr(ds[0]), file=sys.stderr)
+class ManyToMoreCollator(ABC):
+    @abstractmethod
+    def run_srcs(self, batch: List[Tensor]) -> Tensor:
+        pass
 
-    dataloader = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False,
-                                       collate_fn=lambda x: collate_many_to_more_seq2seq(x, max_unalignemet=ds.max_unalignemet))
-    print("Dataloader[0]: ", file=sys.stderr)
-    print(list(dataloader)[2], file=sys.stderr)
+    @abstractmethod
+    def run_srcs_and_tgts(self, batch: List[Tuple[Tensor, Tensor]]) -> Tuple[Tensor, Tensor]:
+        pass
+
+    def __call__(self, batch: Union[List[Tuple[Tensor, Tensor]], List[Tensor]], separate_output: Optional[List[Tensor]] = None) -> Union[Tuple[Tensor, Tensor], Tensor]:
+        """
+        Collates a batch of ManyToMore data samples to batch tensors.
+        Can be passed as a collation function to a PyTorch DataLoader.
+        Essentially launches either `run_srcs_and_tgts` or `run_srcs` depending on the input.
+
+        Parameters
+        ----------
+        batch : Union[List[Tuple[Tensor, Tensor]], List[Tensor]]
+            Either a list of tuples (source, target) or a list of sources only.
+        separate_output : Optional[List[Tensor]], optional
+            Allows passing aligned input and output batches separately.
+
+        Returns
+        -------
+        Union[Tuple[Tensor, Tensor], Tensor]
+            If outputs were passed separately or `batch` is a list of tuples, returns a tuple 
+            (sources, targets). Otherwise, returns sources only.
+        """
+        if separate_output is not None:
+            assert isinstance(batch, list) and isinstance(batch[0], Tensor)
+            batch = [tuple(src_tgt) for src_tgt in zip(batch, separate_output)]
+        if isinstance(batch, list) and isinstance(batch[0], tuple) and len(batch[0]) == 2:  # sources ant targets
+            return self.run_srcs_and_tgts(batch)  # type: ignore
+        elif isinstance(batch[0], Tensor):  # sources only
+            return self.run_srcs_only(batch)  # type: ignore
+        else:
+            raise ValueError("Batch must be a list of tuples or a list of tensors")
+
+
+class ManyToMoreCollatorSeq2Seq(ManyToMoreCollator):
+    """
+    A collation function for PyTorch DataLoader that processes batches of sequences 
+    for sequence-to-sequence tasks. This collator is designed to handle cases where 
+    the target sequences may have varying lengths, and it pads them to a uniform length.
+
+    Attributes:
+        max_unalignment (int): The maximum allowed length for target sequences. If set 
+            to a negative value, the maximum length is determined dynamically based on 
+            the longest target sequence in the batch.
+
+    Methods:
+        __call__(batch):
+            Processes a batch of source and target sequences, ensuring that the target 
+            sequences are padded to a uniform length. Returns the processed source and 
+            target tensors.
+
+    Args:
+        max_unalignment (int, optional): The maximum allowed length for target sequences. 
+            If set to a negative value (default: -1), the maximum length is determined 
+            dynamically based on the longest target sequence in the batch.
+
+    Raises:
+        RuntimeError: If the length of any target sequence exceeds the specified 
+            `max_unalignment`.
+
+    Example:
+        >>> collator = ManyToMoreCollatorSeq2Seq(max_unalignment=10)
+        >>> srcs = [Tensor([1, 2, 3])]
+        >>> tgts = [Tensor([4, 5])]
+        >>> batch = [(srcs[0], tgts[0])]
+        >>> src_tensor, tgt_tensor = collator(batch)
+        >>> print(src_tensor.shape)  # torch.Size([1, 3])
+        >>> print(tgt_tensor.shape)  # torch.Size([1, 11])
+    """
+    def __init__(self, max_unalignment: int = -1):
+        self.max_unalignment = max_unalignment
+    
+    def run_srcs_and_tgts(self, batch: List[Tuple[Tensor, Tensor]]) -> Tuple[Tensor, Tensor]:
+        assert len(batch) == 1
+        srcs, tgts = zip(*batch)
+        assert len(srcs) == 1 and len(tgts) == 1    
+        srcs, tgts = srcs[0], tgts[0]
+        if self.max_unalignment < 0:
+            max_unalignment = max([len(tgt) for tgt in tgts])
+        else:
+            max_unalignment = self.max_unalignment
+        tgts_tensor = torch.zeros((len(srcs), max_unalignment + 1), dtype=torch.long)
+        for i, tgt in enumerate(tgts):
+            if len(tgt) > max_unalignment:
+                raise RuntimeError(f"Target length {len(tgt)} exceeds max_unalignment {max_unalignment}")
+            tgts_tensor[i, :len(tgt)] = tgt
+        return srcs.unsqueeze(0), tgts_tensor
+
+    def run_srcs(self, batch: List[Tensor]) -> Tensor:
+        assert len(batch) == 1 and isinstance(batch[0], Tensor)
+        return batch[0].unsqueeze(0)
+
+

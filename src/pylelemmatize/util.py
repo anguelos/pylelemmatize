@@ -1,9 +1,61 @@
 import re
-from typing import Generator, Literal, Set, Union, List
-from anyio import Path
+from typing import Generator, Literal, Set, Union, List, Tuple, Dict, Any
+from pathlib import Path
 import tqdm
 import sys
+import unicodedata
+from lxml import etree
 
+# Utility code from many to more BEGIN
+# TODO (anguelos): harmonize it with the rest of the utilities
+
+
+def pagexml_to_text(pagexml_path: str) -> str:
+    """
+    Converts a PAGE XML string to plain text.
+
+    Parameters:
+    pagexml (str): The PAGE XML content as a string.
+
+    Returns:
+    str: The extracted plain text.
+    """
+    pagexml = open(pagexml_path, "r").read()
+    xml_bytes = pagexml.encode("utf-8")
+    root = etree.fromstring(xml_bytes)
+    texts = []
+    for unicode_text in root.xpath(".//*[local-name()='Unicode']"):
+        texts.append(unicode_text.text or "")
+    return "\n".join(texts)
+
+
+def get_textlines(filepath: str, assume_txt=False, strip_empty_lines=True) -> List[str]:
+    if filepath.lower().endswith(".xml") or filepath.lower().endswith(".pagexml"):
+        res = pagexml_to_text(filepath).split("\n")
+    elif filepath.lower().endswith(".txt") or assume_txt:
+        res = open(filepath, "r").read().split("\n")
+    else:
+        raise f"Can't open {filepath}"
+    if strip_empty_lines:
+        res = [line for line in res if len(line)]
+    res = [unicodedata.normalize("NFC", s) for s in res]
+    return res
+
+
+def load_textline_pairs(filelist1: List[str], filelist2: List[str]) -> List[Tuple[str, str]]:
+    assert len(filelist1) == len(filelist2)
+    res = []
+    for file1, file2 in zip(sorted(filelist1), sorted(filelist2)):
+        lines1 = get_textlines(file1)
+        lines2 = get_textlines(file2)
+        if len(lines1) == len(lines2):
+            for line1, line2 in zip(lines1, lines2):
+                res.append((line1, line2))
+        else:
+            print(f"Unaligned {file1} {file2} with {len(lines1)} vs {len(lines2)} lines", file=sys.stderr)
+    return res
+
+# Utility code from many to more END
 
 
 
@@ -36,7 +88,7 @@ def generate_corpus(filenames: Union[Set[str], List[str]], strip_xml: bool = Tru
             yield dexmlfy(data)
         else:
             yield data
-            
+
 
 def extract_transcription_from_page_xml(xml_content, line_separator="\n", linesegment_separator="\t", ignore_deleted=True):
     """
