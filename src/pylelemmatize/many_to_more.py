@@ -218,7 +218,11 @@ def align_sub_strings(a: str, b: str, band:int = 80) -> List[Tuple[str, str]]:
     return merged_insertions
 
 
-def cer(seq1: np.ndarray, seq2: np.ndarray, band=-1, normalize=False) -> float:
+def cer(seq1: Union[np.ndarray, str], seq2: Union[np.ndarray, str], band=-1, normalize=False) -> float:
+    if isinstance(seq1, str):
+        seq1 = fast_str_to_numpy(seq1)
+    if isinstance(seq2, str):
+        seq2 = fast_str_to_numpy(seq2)
     if band<1:
         band = max(seq1.size, seq2.size)
     _, costs, (_, _, _, _) = banded_edit_path(seq1, seq2, band=band)
@@ -328,6 +332,22 @@ class ManyToMoreDS():
             src = np.array(src, dtype=np.int16).reshape(-1)
             tgt = [np.array(t, dtype=np.int16) for t in tgt]
         return src[0], tgt
+    
+    def get_cer(self, idx: int=-1) -> Tuple[int, int]:
+        if idx < 0:
+            correct_chars = 0
+            total_chars = 0
+            for idx in range(len(self)):
+                correct, total = self.get_cer(idx)
+                correct_chars += correct
+                total_chars += total
+            return correct_chars, total_chars
+        else:
+            inp_out = self.aligned_substrings[idx]
+            inp = ''.join([part[0] for part in inp_out])
+            out = ''.join([part[1] for part in inp_out])
+            errors = cer(inp, out, normalize=False, band=-1)
+            return int(errors), int(len(out))
     
     def save(self, dataset_path: str):
         data = {'aligned_substrings': self.aligned_substrings,

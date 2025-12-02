@@ -257,7 +257,6 @@ class DemapperLSTMCTC(DemapperLSTM):
                         continue
                     total_correct += max(len(pred_lab)-cer(pred_lab, tgt_lab, normalize=False), 0)
                     total_lengths += len(tgt_lab)
-
         self.history['valid_loss'][self.epoch] = total_loss / len(valid_ds)
         acc = total_correct / total_lengths if total_lengths > 0 else 0.0
         if acc > max(self.history['valid_acc'].values(), default=-1.0):
@@ -337,8 +336,8 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
         "inputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/abreviated/B*.xml")),
         "outputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/unabreviated/B*.xml")),
         "input_alphabet": pylelemmatize.charsets.mes3a,
-        "output_alphabet": pylelemmatize.charsets.ascii,
-        "hidden_sizes": "128,128,128",
+        "output_alphabet": pylelemmatize.charsets.mufibmp,
+        "hidden_sizes": "384,384,384",
         "dataset_cache_path": "./tmp/many_to_more_ds.pt",
         "allow_start_insertions": False,
         "band": 70,
@@ -374,6 +373,9 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
         dataset = ManyToMoreDS.create_from_aligned_textlines(line_pairs=line_pairs, verbose=args.verbose, band=args.band, allow_start_insertions=args.allow_start_insertions)
         dataset.save(args.dataset_cache_path)
     train_ds, valid_ds = dataset.split(args.train_test_split)
+    train_ds_error, train_ds_size = train_ds.get_cer()
+    valid_ds_error, valid_ds_size = valid_ds.get_cer()
+    ds_err_str = f"Train set cer: {train_ds_error/train_ds_size:.03f} ({train_ds_error}/{train_ds_size})\nValidation set size: {valid_ds_error/valid_ds_size:.03f} ({valid_ds_error}/{valid_ds_size})"
     net = DemapperLSTMCTC.resume(path=args.output_model_path, 
                             input_alphabet_str=train_ds.input_mapper.src_alphabet_str, 
                             output_alphabet_str=train_ds.output_mapper.src_alphabet_str,
@@ -384,6 +386,7 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
     net.validate_one2one_epoch(valid_ds=valid_ds, criterion=ctc_loss, batch_size= args.batch_size, progress=args.verbose)
     net.save(args.output_model_path)
     while net.epoch < args.nb_epochs:
+        print(ds_err_str)
         print(f"Training epoch {net.epoch + 1}...")
         train_loss, train_acc = net.train_one2one_epoch(train_ds, criterion=ctc_loss, optimizer=optimizer,
                                                         batch_size=args.batch_size, pseudo_batch_size=args.pseudo_batch_size)
