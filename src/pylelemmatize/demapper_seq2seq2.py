@@ -6,57 +6,35 @@ import time
 import sys
 from pathlib import Path
 from tqdm import tqdm
-from .many_to_more import ManyToMoreCollator, ManyToMoreDS, compute_cer
+from .many_to_more import ManyToMoreCollatorSeq2Seq2, ManyToMoreDS, compute_cer
 from .demapper_lstm import DemapperLSTM
 from .fast_mapper import LemmatizerBMP
 
 
-class ManyToMoreCollatorCTC(ManyToMoreCollator):
-    def __init__(self, ctc_epsilon_label:int =0, max_unalignment: int = -1, prefer_replication: bool = False):
-        self.max_unalignment = max_unalignment
-        self.ctc_epsilon_label = ctc_epsilon_label
-        self.prefer_replication = prefer_replication
+class SeqDecoder(torch.nn.Module):
+    def __init__(self, output_dim, emb_dim, hid_dim, num_layers=1):
+        super().__init__()
+        self.embedding = torch.nn.Embedding(output_dim, emb_dim)
+        self.rnn = torch.nn.LSTM(emb_dim, hid_dim, num_layers=num_layers, batch_first=True)
+        self.fc_out = torch.nn.Linear(hid_dim, output_dim)
 
-    def run_srcs_and_tgts(self, batch: List[Tuple[ Tensor, Tensor]]) -> Tuple[Tensor, Tensor]:
-        assert len(batch) == 1
-        srcs, tgts = zip(*batch)
-        assert len(srcs) == 1 and len(tgts) == 1
-        srcs, tgts = srcs[0], tgts[0]
-        if self.max_unalignment < 0:
-            max_unalignment = max([len(tgt) for tgt in tgts])
-        else:
-            max_unalignment = self.max_unalignment
-        src_tensor = torch.zeros((len(srcs) * (max_unalignment + 1)), dtype=torch.long) + self.ctc_epsilon_label
-        tgts_tensor = torch.cat([tgt.long().view(-1) for tgt in tgts], dim=0)
-        for i, src in enumerate(srcs.view(-1).tolist()):
-            idx_start = i * (max_unalignment + 1)
-            if self.prefer_replication:
-                idx_end = idx_start + max_unalignment # an epsilon will be added at the end
-            else:
-                idx_end = idx_start + 1
-            src_tensor[idx_start: idx_end] = src
-        return src_tensor.unsqueeze(0), tgts_tensor.unsqueeze(0)
+    def forward(self, input_token, hidden):
+        """
+        input_token: (batch_size) - single timestep token ids
+        hidden: (num_layers, batch_size, hid_dim)
 
-    def run_srcs(self, batch: List[Tensor]) -> Tensor:
-        assert len(batch) == 1 and isinstance(batch[0], Tensor)
-        srcs = batch[0]
-        if self.max_unalignment < 0:
-            max_unalignment = 1
-        else:
-            max_unalignment = self.max_unalignment
-        src_tensor = torch.zeros((len(srcs) * (max_unalignment + 1)), dtype=torch.long) + self.ctc_epsilon_label
-        for i, src in enumerate(srcs.view(-1).tolist()):
-            idx_start = i * (max_unalignment + 1)
-            if self.prefer_replication:
-                idx_end = idx_start + max_unalignment # an epsilon will be added at the end
-            else:
-                idx_end = idx_start + 1
-            src_tensor[idx_start: idx_end] = src 
-        return src_tensor
+        returns:
+          output: (batch_size, output_dim) logits
+          hidden: (num_layers, batch_size, hid_dim)
+        """
+        # add time dimension (step = 1)
+        input_token = input_token.unsqueeze(1)          # (B, 1)
+        embedded = self.embedding(input_token)          # (B, 1, emb_dim)
+        output, hidden = self.rnn(embedded, hidden)     # output: (B, 1, H)
+        prediction = self.fc_out(output.squeeze(1))     # (B, output_dim)
+        return prediction, hidden
 
-
-
-class DemapperLSTMCTC(DemapperLSTM):
+class DemapperLSTMSeq2Seq2(DemapperLSTM):
     def __init__(self, input_mapper: Union[str, LemmatizerBMP], output_mapper: Union[str, LemmatizerBMP],
                  hidden_sizes: List[int]=[128, 128, 128], 
                  dropouts: Union[List[float], float] = 0.,
@@ -66,14 +44,14 @@ class DemapperLSTMCTC(DemapperLSTM):
                  max_unalignment: int = 10,
                  prefer_replication: bool = False,
                  ):
-        super(DemapperLSTMCTC, self).__init__(input_mapper=input_mapper,
+        super(DemapperLSTMSeq2Seq2, self).__init__(input_mapper=input_mapper,
                                               output_mapper=output_mapper,
                                               hidden_sizes=hidden_sizes,
                                               dropouts=dropouts,
                                               directions=directions,
                                               output_to_input_mapping=output_to_input_mapping,
                                               )
-        self.collator = ManyToMoreCollatorCTC(ctc_epsilon_label=ctc_epsilon_label, 
+        self.collator = ManyToMoreCollatorSeq2Seq2(ctc_epsilon_label=ctc_epsilon_label, 
                                               max_unalignment=max_unalignment, 
                                               prefer_replication=prefer_replication)
 
@@ -82,7 +60,7 @@ class DemapperLSTMCTC(DemapperLSTM):
         tbc_x = btc_x.permute(1, 0, 2)  # Change to (batch, seq_len, embedding_dim)
         for layer, dropout in zip(self.lstm_layers, self.dropout_layers):
             tbc_x = torch.nn.functional.relu(tbc_x)
-            tbc_x, _ = layer(tbc_x)
+            tbc_x, states = layer(tbc_x)
             tbc_x = dropout(tbc_x)
         tbc_x = torch.nn.functional.relu(tbc_x)
         btc_x = tbc_x.permute(1, 0, 2)  # Change back to (batch, seq_len, embedding_dim)
@@ -131,12 +109,12 @@ class DemapperLSTMCTC(DemapperLSTM):
             return textlines[0]
 
     def is_compatible(self, other: Any) -> bool:
-        if not isinstance(other, (DemapperLSTMCTC, ManyToMoreDS)):
+        if not isinstance(other, (DemapperLSTMSeq2Seq2, ManyToMoreDS)):
             return False
         elif isinstance(other, ManyToMoreDS):
             return self.input_mapper.src_alphabet_str == other.input_mapper.src_alphabet_str and \
                    self.output_mapper.src_alphabet_str == other.output_mapper.src_alphabet_str
-        elif isinstance(other, DemapperLSTMCTC):
+        elif isinstance(other, DemapperLSTMSeq2Seq2):
             return self.input_mapper.src_alphabet_str == other.input_mapper.src_alphabet_str and \
                    self.output_mapper.src_alphabet_str == other.output_mapper.src_alphabet_str
         else:
@@ -177,7 +155,7 @@ class DemapperLSTMCTC(DemapperLSTM):
         torch.save(dict_to_save, path)
     
     @classmethod
-    def __resume(cls, path: str, resume_best_weights: bool) -> 'DemapperLSTMCTC':
+    def __resume(cls, path: str, resume_best_weights: bool) -> 'DemapperLSTMSeq2Seq2':
         checkpoint = torch.load(path, map_location='cpu', weights_only=False)
         input_mapper = checkpoint['input_alphabet']
         output_mapper = checkpoint['output_alphabet']
@@ -202,7 +180,7 @@ class DemapperLSTMCTC(DemapperLSTM):
     def resume(cls, path: str, input_alphabet_str: Optional[Union[str, LemmatizerBMP]] = None, output_alphabet_str: Optional[Union[str, LemmatizerBMP]] = None, hidden_sizes: List[int]=[128, 128, 128], 
                  dropouts: List[float] = [0.1, 0.1, 0.1], resume_best_weights: bool = False,
                  ctc_epsilon_label: int = 0, max_unalignment: int = 10,
-                 prefer_replication: bool = False) -> 'DemapperLSTMCTC':
+                 prefer_replication: bool = False) -> 'DemapperLSTMSeq2Seq2':
         if Path(path).is_file():
             res = cls.__resume(path, resume_best_weights=resume_best_weights)
         else:

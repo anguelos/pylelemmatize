@@ -402,7 +402,7 @@ def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
             print("IN >",in_str)
             print("GT >",out_str)
             print("OUT>", end='')
-            print_err(pred_str, correct=correct, confidence=confidence)
+            print(print_err(pred_str, correct=correct, confidence=confidence))
             print("")
         net.save(args.output_model_path, args=args)  # Save the model after each epoch
 
@@ -522,7 +522,7 @@ def main_infer_one2one(model_path: str ="./tmp/models/model.pt",
                     print("IN >",line, file=sys.stderr)
                     print("GT >",raw_line, file=sys.stderr)
                     print("OUT> ", end='', file=sys.stderr)
-                    print_err(output, correct=correct, confidence=confidence, file=sys.stderr)
+                    print(print_err(output, correct=correct, confidence=confidence, file=sys.stderr))
 
             print(output, flush=True, file=out_fd)
             if args.add_newline:

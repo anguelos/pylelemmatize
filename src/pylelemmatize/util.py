@@ -1,10 +1,14 @@
 import re
-from typing import Generator, Literal, Set, Union, List, Tuple, Dict, Any
+from typing import IO, Generator, Literal, Optional, Set, Union, List, Tuple, Dict, Any
 from pathlib import Path
+import numpy as np
 import tqdm
 import sys
 import unicodedata
 from lxml import etree
+from math import inf
+
+from pylelemmatize.abstract_mapper import fast_str_to_numpy
 
 # Utility code from many to more BEGIN
 # TODO (anguelos): harmonize it with the rest of the utilities
@@ -58,6 +62,157 @@ def load_textline_pairs(filelist1: List[str], filelist2: List[str]) -> List[Tupl
 # Utility code from many to more END
 
 
+def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int, add_null_initial: bool = True) -> Tuple[np.ndarray, np.ndarray, Tuple[np.array, np.array, np.array, np.array]]:
+    """
+    Banded dynamic-programming alignment (edit distance with unit costs).
+    
+    Args:
+        a: numpy array of single-character strings, shape (m,)
+        b: numpy array of single-character strings, shape (n,)
+        band: non-negative int, maximum |i - j| misalignment allowed
+    
+    Returns:
+        path: A numpy array of (N+1, 2) containing the coordiantes of the optimal path with respect to a and b.
+            The array begins with coordinates [-1, -1] to insdicate START.
+        costs: A numpy array of the cumulative costs along the path.
+        mat_ins_del_sub: Tuple of boolean arrays
+    
+    Raises:
+        ValueError if alignment is impossible given the band (e.g., |m - n| > band).
+    
+    Notes:
+        - Costs: match = 0, substitution = 1, insertion = 1, deletion = 1.
+        - Memory: O((m+n)*band). Time: ~O((m+n)*band).
+        - The returned path walks *cells* (i,j) of the DP grid (length m+n minus matches).
+    """
+    # Backpointer codes
+    DIAG, UP, LEFT = 0, 1, 2
+    m, n = len(a), len(b)
+    if band < 0:
+        raise ValueError("band must be non-negative")
+    if abs(m - n) > band:
+        # End point (m,n) lies outside the band reachable region
+        raise ValueError(f"Strings differ in length by {abs(m-n)}, larger than band {band}.")
+
+    # Per row storage (j-starts, costs, backpointers)
+    row_starts: List[int] = []
+    row_costs: List[np.ndarray] = []
+    row_bp: List[np.ndarray] = []
+
+    # Helper to allocate a row segment covering j in [jmin, jmax]
+    def alloc_row(jmin: int, jmax: int):
+        width = jmax - jmin + 1
+        return (jmin, np.full(width, inf, dtype=float), np.full(width, -1, dtype=np.int8))
+
+    # Row 0 initialization (i = 0): we can only do insertions
+    jmin0 = max(0, 0 - band)
+    jmax0 = min(n, 0 + band)
+    j0, cost0, bp0 = alloc_row(jmin0, jmax0)
+    # DP[0, j] = j, along the top row (only if within band)
+    for j in range(j0, jmax0 + 1):
+        cost0[j - j0] = j
+        bp0[j - j0] = LEFT if j > 0 else -1  # from (0,j-1) unless at origin
+    row_starts.append(j0); row_costs.append(cost0); row_bp.append(bp0)
+
+    # Fill subsequent rows
+    for i in range(1, m + 1):
+        # Band-limited j-range for row i
+        jmin = max(0, i - band)
+        jmax = min(n, i + band)
+        j_start, cost_row, bp_row = alloc_row(jmin, jmax)
+
+        # Previous row context
+        prev_start = row_starts[i - 1]
+        prev_cost = row_costs[i - 1]
+
+        for j in range(jmin, jmax + 1):
+            k = j - j_start  # index in current row
+
+            # Candidates: deletion (up), insertion (left), substitution/match (diag)
+            best_cost = inf
+            best_bp = -1
+
+            # UP: from (i-1, j) if that col exists in prev row
+            if prev_start <= j <= prev_start + len(prev_cost) - 1:
+                c_up = prev_cost[j - prev_start] + 1  # deletion from a
+                if c_up < best_cost:
+                    best_cost, best_bp = c_up, UP
+
+            # LEFT: from (i, j-1) if j-1 in current row band
+            if j - 1 >= j_start:
+                c_left = cost_row[k - 1] + 1  # insertion into a (gap in a)
+                if c_left < best_cost:
+                    best_cost, best_bp = c_left, LEFT
+
+            # DIAG: from (i-1, j-1) if that exists in prev row
+            if prev_start <= j - 1 <= prev_start + len(prev_cost) - 1:
+                sub = 0 if a[i - 1] == b[j - 1] else 1
+                c_diag = prev_cost[(j - 1) - prev_start] + sub
+                if c_diag < best_cost:
+                    best_cost, best_bp = c_diag, DIAG
+
+            cost_row[k] = best_cost
+            bp_row[k] = best_bp
+
+        row_starts.append(j_start); row_costs.append(cost_row); row_bp.append(bp_row)
+
+    # Verify end cell is inside band and finite
+    if not (row_starts[m] <= n <= row_starts[m] + len(row_costs[m]) - 1):
+        raise ValueError("End cell (m,n) falls outside the band — increase band.")
+    end_idx = n - row_starts[m]
+    if not np.isfinite(row_costs[m][end_idx]):
+        raise ValueError("No valid path within band — increase band.")
+
+    # Traceback from (m, n) to (0, 0)
+    path: List[Tuple[int, int]] = []
+    i, j = m, n
+    while True:
+        path.append((i, j))
+        if i == 0 and j == 0:
+            break
+        j_start = row_starts[i]
+        k = j - j_start
+        if k < 0 or k >= len(row_bp[i]):
+            # If we ever step just outside due to band edge, it's invalid
+            raise RuntimeError("Traceback stepped outside band; increase band.")
+        bp = row_bp[i][k]
+        if bp == DIAG:
+            i, j = i - 1, j - 1
+        elif bp == UP:
+            i, j = i - 1, j
+        elif bp == LEFT:
+            i, j = i, j - 1
+        else:
+            raise RuntimeError("Invalid backpointer during traceback.")
+    path.reverse()
+    #path = [[-1, -1]] + list(path)
+    paths = np.array(path) - 1
+    is_ins = paths[1:, 0] - paths[: -1, 0] == 0
+    is_del = paths[1:, 1] - paths[: -1, 1] == 0
+    is_diag = ~(is_del | is_ins)
+    agree =  (a[paths[1:, 0]] == b[paths[1:, 1]])
+    #agree =  (a[paths[:-1, 0] - 1] == b[paths[:-1, 1] -1])
+    is_sub = is_diag & ~agree
+    is_match = is_diag & agree
+    #print(f"\nA:{a.tolist()}\nB:{b.tolist()}\nPATHS:\n", paths.T, "\nis_del: ", is_del, "\nis_ins: ", is_ins, "\nis_sub: ", is_sub, "\nis_mat: ", is_match)
+    #is_sub = (a[paths[1:, 0]] != b[paths[1:, 1]])
+    cost_1 = is_sub | is_del | is_ins
+    return paths, cost_1.astype(np.int16), (is_match, is_ins, is_del, is_sub)
+
+
+def compute_cer(seq1: Union[np.ndarray, str], seq2: Union[np.ndarray, str], band=-1, normalize=False) -> float:
+    if isinstance(seq1, str):
+        seq1 = fast_str_to_numpy(seq1)
+    if isinstance(seq2, str):
+        seq2 = fast_str_to_numpy(seq2)
+    if band<1:
+        band = max(seq1.size, seq2.size)
+    _, costs, (_, _, _, _) = banded_edit_path(seq1, seq2, band=band)
+    if normalize:
+        return float(costs.sum()) / max(len(seq1), len(seq2))
+    else:
+        return float(costs.sum())
+
 
 def fast_extract_text_from_xml(xml_string: str, concatenate: bool = True) -> Union[str, List[str]]:
     # Regular expression to find text within tags
@@ -67,6 +222,145 @@ def fast_extract_text_from_xml(xml_string: str, concatenate: bool = True) -> Uni
         return ' '.join(text_parts)
     else:
         return text_parts
+
+
+def print_err(txt: str ="Hello", correct: Optional[List[bool]]=None, confidence: Optional[List[float]]=None, file: Optional[IO[str]]=None) -> str:
+    """
+    Print text to stderr with color coding based on correctness and confidence.
+
+    Each character in the input text is colorized using ANSI escape codes. The foreground
+    color is green for correct characters and red for incorrect ones. The background color
+    interpolates from black (high confidence) to white (low confidence).
+
+    Parameters
+    ----------
+    txt : str, optional
+        The text to be printed. Defaults to "Hello".
+    correct : list of bool, optional
+        A list indicating whether each character in `txt` is correct (True) or incorrect (False).
+        If None, all characters are assumed to be correct. Defaults to None.
+    confidence : list of float, optional
+        A list of confidence values (between 0.0 and 1.0) for each character in `txt`.
+        A value of 1.0 corresponds to high confidence (black background), and 0.0 corresponds
+        to low confidence (white background). If None, all characters are assigned a confidence
+        of 1.0. Defaults to None.
+    file : file-like object, optional
+        A file-like object to which the output will be written. If None, the output is printed
+        to the standard error. Defaults to None.
+
+    Notes
+    -----
+    This function uses ANSI escape codes for colorization, which may not be supported in all
+    terminal environments.
+
+    Examples
+    --------
+    >>> print_err("Test", correct=[True, False, True, True], confidence=[1.0, 0.5, 0.8, 1.0])
+    (Outputs colorized text to the terminal)
+    """
+    def interpolate_color(c1, c2, t):
+        """Linearly interpolate between two RGB colors c1 and c2 by t (0 to 1)."""
+        return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+
+    def __colorize_char(char, correct=True, confidence=1.0):
+        """
+        Return a string with ANSI escape codes for a single character.
+        Green foreground if correct, red if incorrect.
+        Background from black (conf=1.0) to white (conf=0.0).
+        """
+        # Foreground colors
+        fg = (0, 255, 0) if correct else (255, 0, 0)  # green or red
+
+        # Background interpolation: black (1.0) → white (0.0)
+        bg = interpolate_color((0, 0, 0), (255, 255, 255), 1 - confidence)
+
+        return f"\x1b[38;2;{fg[0]};{fg[1]};{fg[2]}m\x1b[48;2;{bg[0]};{bg[1]};{bg[2]}m{char}\x1b[0m"
+
+    if correct is None:
+        correct = [True] * len(txt)
+    if confidence is None:
+        confidence = [1.0] * len(txt)
+
+    output = ''
+    for c, corr, conf in zip(txt, correct, confidence):
+        output += __colorize_char(c, corr, conf)
+    if file is not None:
+        print(output, file=file)
+    return output
+
+
+def print_colored_text(seq: Union[str, np.array],
+                       fg_rgb: Optional[Union[Tuple[int, int, int], List[Tuple[int, int, int]]]] = None, 
+                       bg_rgb: Optional[Union[Tuple[int, int, int], List[Tuple[int, int, int]]]] = None,
+                       file: Optional[IO[str]] = None) -> str:
+    if fg_rgb is None:
+        fg_rgb = (255, 255, 255)
+    if bg_rgb is None:
+        bg_rgb = (0, 0, 0)
+    if isinstance(fg_rgb, Tuple) and len(fg_rgb) == 3 and all(isinstance(c, int) for c in fg_rgb):
+        fg_rgb = [fg_rgb] * len(seq)
+    else:
+        assert len(fg_rgb) == len(seq), "fg_rgb length must match sequence length"
+
+    if isinstance(bg_rgb, Tuple) and len(bg_rgb) == 3 and all(isinstance(c, int) for c in bg_rgb):
+        bg_rgb = [bg_rgb] * len(seq)
+    else:
+        assert len(bg_rgb) == len(seq), "bg_rgb length must match sequence length"
+    res = []
+    for n, character in enumerate(seq):
+        fg = fg_rgb[n]
+        bg = bg_rgb[n]
+        colored_char = f"\x1b[38;2;{fg[0]};{fg[1]};{fg[2]}m\x1b[48;2;{bg[0]};{bg[1]};{bg[2]}m{character}\x1b[0m"
+        res.append(colored_char)
+    res = ''.join(res)
+    if file is not None:
+        print(res, file=file)
+    return res
+
+
+def print_error_types(seq1: Union[str, np.array], seq2: Union[str, np.array], band: int = -1, 
+                      correct_rgb: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = ((0, 255, 0), (0, 0, 0)), 
+                      substitution_rgb: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = ((255, 0, 0), (0, 0, 0)),
+                      insertion_rgb: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = ((255, 0, 0), (192, 192, 192)),
+                      deletion_rgb: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = ((255, 0, 0), (96, 96, 96)), 
+                      file: Optional[IO[str]] = None) -> str:
+    if isinstance(seq1, str):
+        seq1_arr = fast_str_to_numpy(seq1)
+    if isinstance(seq2, str):
+        seq2_arr = fast_str_to_numpy(seq2)
+    if band < 1:
+        band = max(len(seq1_arr), len(seq2_arr))
+    paths, _, (is_match, is_ins, is_del, is_sub) = banded_edit_path(seq1_arr, seq2_arr, band=band)
+    fg_colors = []
+    bg_colors = []
+    txt = []
+    #print(f"seq1: {seq1}\nseq2: {seq2}\npaths:\n{paths}\n", file=sys.stderr)
+    for n in range(len(paths)-1):
+        if is_match[n]:
+            fg, bg = correct_rgb
+            fg_colors.append(fg)
+            bg_colors.append(bg)
+            txt.append(seq1[paths[n+1][0]])
+        elif is_sub[n]:
+            fg, bg = substitution_rgb
+            fg_colors.append(fg)
+            bg_colors.append(bg)
+            txt.append(seq1[paths[n+1][0]])
+        elif is_ins[n]:
+            fg, bg = insertion_rgb
+            fg_colors.append(fg)
+            bg_colors.append(bg)
+            txt.append(seq2[paths[n+1][1]])
+        elif is_del[n]:
+            fg, bg = deletion_rgb
+            fg_colors.append(fg)
+            bg_colors.append(bg)
+            txt.append(seq1[paths[n+1][0]])
+        else:
+            raise RuntimeError("Invalid state in error type printing.")
+    txt = ''.join(txt)
+    #print(f"{txt} FG:{fg_colors} BG:{bg_colors} Is match{is_match}\n{paths}", file=sys.stderr)
+    return print_colored_text(txt, fg_rgb=fg_colors, bg_rgb=bg_colors, file=file)
 
 
 def generate_corpus(filenames: Union[Set[str], List[str]], strip_xml: bool = True, treat_all_file_as_xml: bool = False, verbose: bool = False) -> Generator[str, None, None]:
@@ -142,36 +436,6 @@ def extract_transcription_from_page_xml(xml_content, line_separator="\n", linese
     return line_separator.join(lines)
 
 
-def print_err(txt="Hello", correct=None, confidence=None, file=None):
-    def interpolate_color(c1, c2, t):
-        """Linearly interpolate between two RGB colors c1 and c2 by t (0 to 1)."""
-        return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
-
-    def colorize_char(char, correct=True, confidence=1.0):
-        """
-        Return a string with ANSI escape codes for a single character.
-        Green foreground if correct, red if incorrect.
-        Background from black (conf=1.0) to white (conf=0.0).
-        """
-        # Foreground colors
-        fg = (0, 255, 0) if correct else (255, 0, 0)  # green or red
-
-        # Background interpolation: black (1.0) → white (0.0)
-        bg = interpolate_color((0, 0, 0), (255, 255, 255), 1 - confidence)
-
-        return f"\x1b[38;2;{fg[0]};{fg[1]};{fg[2]}m\x1b[48;2;{bg[0]};{bg[1]};{bg[2]}m{char}\x1b[0m"
-    if correct is None:
-        correct = [True] * len(txt)
-    if confidence is None:
-        confidence = [1.0] * len(txt)
-
-    output = ''
-    for c, corr, conf in zip(txt, correct, confidence):
-        output += colorize_char(c, corr, conf)
-    if file is None:
-        print(output)
-    else:
-        print(output, file=file)
 
 
 def main_extract_transcription_from_page_xml():

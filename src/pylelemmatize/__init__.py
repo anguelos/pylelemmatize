@@ -6,7 +6,7 @@ from .fast_mapper import LemmatizerBMP
 from .all_charsets import Charsets
 charsets = Charsets()
 
-from .util import extract_transcription_from_page_xml, main_extract_transcription_from_page_xml, print_err
+from .util import extract_transcription_from_page_xml, main_extract_transcription_from_page_xml, print_err, print_colored_text, print_error_types, compute_cer
 import sys
 from .philogeny import main_char_similarity_tree
 from .version import version
