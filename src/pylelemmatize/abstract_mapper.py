@@ -213,7 +213,7 @@ class AbstractLemmatizer(ABC):
         """Return the size of the destination alphabet."""
         return len(self.dst_alphabet_str) + 1
 
-    def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
+    def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         # adding all characters atleast once to make np.unique count zero counts
         #src_alphabet_str, _, __np_chrord2dense, __np_dense2chrord = self.__create_mappers(self.mapping_dict, self.unknown_chr)
         np_text = fast_str_to_numpy(self.unknown_chr + self.src_alphabet_str + text)

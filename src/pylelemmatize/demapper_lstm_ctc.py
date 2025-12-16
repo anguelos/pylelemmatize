@@ -9,6 +9,7 @@ from tqdm import tqdm
 from .many_to_more import ManyToMoreCollator, ManyToMoreDS, compute_cer
 from .demapper_lstm import DemapperLSTM
 from .fast_mapper import LemmatizerBMP
+from .util import print_error_types
 
 
 class ManyToMoreCollatorCTC(ManyToMoreCollator):
@@ -220,7 +221,8 @@ class DemapperLSTMCTC(DemapperLSTM):
         criterion = torch.nn.CTCLoss(blank=self.ctc_epsilon_label)
         return optimizer, criterion
 
-    def validate_one2one_epoch(self, valid_ds: ManyToMoreDS, criterion: Optional[torch.nn.Module] = None, batch_size: int = 1, progress: bool = True) -> Tuple[float, float]:
+    def validate_one2one_epoch(self, valid_ds: ManyToMoreDS, criterion: Optional[torch.nn.Module] = None, 
+                               batch_size: int = 1, progress: bool = True, print_debug_samples: int = 3) -> Tuple[float, float]:
         if batch_size > 1:
             raise NotImplementedError()
         assert self.is_compatible(valid_ds), "The model is not compatible with the validation dataset."
@@ -233,7 +235,9 @@ class DemapperLSTMCTC(DemapperLSTM):
         total_lengths = 0
         valid_dl = torch.utils.data.DataLoader(dataset = valid_ds, batch_size=batch_size, shuffle=False, collate_fn=self.collator)
         with torch.no_grad():
-            for src_tensor_labels, tgt_tensor_labels in tqdm(valid_dl, disable=not progress, total=len(valid_ds)):
+            if print_debug_samples > 0:
+                pred_str_list = []
+            for n, (src_tensor_labels, tgt_tensor_labels) in tqdm(enumerate(valid_dl), disable=not progress, total=len(valid_ds)):
                 src_tensor_labels = src_tensor_labels.to(device)
                 tgt_tensor_labels = tgt_tensor_labels.to(device)
 
@@ -257,6 +261,19 @@ class DemapperLSTMCTC(DemapperLSTM):
                         continue
                     total_correct += max(len(pred_lab)-compute_cer(pred_lab, tgt_lab, normalize=False), 0)
                     total_lengths += len(tgt_lab)
+                if n < print_debug_samples:
+                    input_seq = src_tensor_labels[0].cpu().numpy().astype(np.int16)
+                    input_seq = input_seq[input_seq != self.ctc_epsilon_label]
+                    input_string = ''.join([valid_ds.input_mapper.intlabel_seq_to_str(input_seq)])
+                    target_seq = tgt_tensor_labels[0].cpu().numpy().astype(np.int16)
+                    target_string = ''.join([valid_ds.output_mapper.intlabel_seq_to_str(target_seq)])
+                    pred_string = predicted_texts[0]
+                    pred_str_list.append((input_string, target_string, pred_string))
+        if print_debug_samples > 0:
+            for input_string, target_string, pred_string in pred_str_list:
+                print(f"\nINPUT >{input_string}")
+                print(f"TARGETG >{target_string}")
+                print(f"PRED.   >{print_error_types(target_string, pred_string)}")
         self.history['valid_loss'][self.epoch] = total_loss / len(valid_ds)
         acc = total_correct / total_lengths if total_lengths > 0 else 0.0
         if acc > max(self.history['valid_acc'].values(), default=-1.0):
@@ -373,8 +390,14 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
         dataset = ManyToMoreDS.create_from_aligned_textlines(line_pairs=line_pairs, verbose=args.verbose, band=args.band, allow_start_insertions=args.allow_start_insertions)
         dataset.save(args.dataset_cache_path)
     train_ds, valid_ds = dataset.split(args.train_test_split)
+
     train_ds_error, train_ds_size = train_ds.get_cer()
     valid_ds_error, valid_ds_size = valid_ds.get_cer()
+    print(f"Train set size: {len(train_ds)}", file=sys.stderr)
+    print(f"Validation set size: {len(valid_ds)}", file=sys.stderr)
+    print(f"Train set cer: {train_ds_error/train_ds_size:.03f} ({train_ds_error}/{train_ds_size})", file=sys.stderr)
+    print(f"Validation set cer: {valid_ds_error/valid_ds_size:.03f} ({valid_ds_error}/{valid_ds_size})", file=sys.stderr)
+
     ds_err_str = f"Train set cer: {train_ds_error/train_ds_size:.03f} ({train_ds_error}/{train_ds_size})\nValidation set size: {valid_ds_error/valid_ds_size:.03f} ({valid_ds_error}/{valid_ds_size})"
     net = DemapperLSTMCTC.resume(path=args.output_model_path, 
                             input_alphabet_str=train_ds.input_mapper.src_alphabet_str, 
@@ -385,12 +408,14 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
     optimizer, ctc_loss = net.get_one2one_train_objects(args.lr)
     net.validate_one2one_epoch(valid_ds=valid_ds, criterion=ctc_loss, batch_size= args.batch_size, progress=args.verbose)
     net.save(args.output_model_path)
+    print(f"Starting training for {args.nb_epochs} epochs...", file=sys.stderr)
     while net.epoch < args.nb_epochs:
         print(ds_err_str)
         print(f"Training epoch {net.epoch + 1}...")
         train_loss, train_acc = net.train_one2one_epoch(train_ds, criterion=ctc_loss, optimizer=optimizer,
                                                         batch_size=args.batch_size, pseudo_batch_size=args.pseudo_batch_size)
         print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}")
-        valid_loss, valid_acc = net.validate_one2one_epoch(valid_ds, criterion=ctc_loss, batch_size=args.batch_size)
+        valid_loss, valid_acc = net.validate_one2one_epoch(valid_ds, criterion=ctc_loss, batch_size=args.batch_size, progress=args.verbose, print_debug_samples=args.debug_sample)
         print(f"Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_acc:.4f}")
         net.save(args.output_model_path)
+    print(f"Ending {args.nb_epochs} epochs... network has completed {net.epoch} epochs", file=sys.stderr)

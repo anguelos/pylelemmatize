@@ -173,8 +173,9 @@ class ManyToMoreDS():
         if self.return_torch:            
             #print(f"input_lengths = {set([len(x) for x in src])}")
             #print(f"output_lengths = {set([len(x) for x in tgt])}")
-            src = [Tensor(seq).long().reshape(-1) for seq in src]
-            tgt = [Tensor(t).long() for t in tgt]
+            #src = [Tensor(seq).long().reshape(-1) for seq in src]
+            src = [Tensor(seq.astype(np.int64)).long().reshape(-1) for seq in src]
+            tgt = [Tensor(t.astype(np.int64)).long() for t in tgt]
         else:
             src = np.array(src, dtype=np.int16).reshape(-1)
             tgt = [np.array(t, dtype=np.int16) for t in tgt]

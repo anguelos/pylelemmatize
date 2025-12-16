@@ -180,7 +180,7 @@ class LemmatizerBMP(GenericLemmatizer):
         output_sparse_text[output_sparse_text == 0] = ord(self.unknown_chr)  # Replace unknown characters with the unknown character ordinal
         return fast_numpy_to_str(output_sparse_text)
 
-    def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
+    def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute unigram statistics for the input text.
 
@@ -191,18 +191,19 @@ class LemmatizerBMP(GenericLemmatizer):
 
         Returns
         -------
-        Tuple[np.ndarray, np.ndarray, Dict[int, str]]
+        Tuple[np.ndarray, np.ndarray, np.ndarray]
             - values : np.ndarray
               Unique integer labels in the text.
             - counts : np.ndarray
               Counts of each unique label.
-            - labels : Dict[int, str]
+            - labels : np.ndarray
               Mapping of integer labels to their corresponding characters.
         """
         np_text = self.str_to_intlabel_seq(self.unknown_chr + self.src_alphabet_str + text)
         values, counts = np.unique(np_text, return_counts=True)
         counts = counts - 1  # removing the counts of the added characters
         labels = self.intlabel_seq_to_str(values)
+        labels = np.array(list(labels), dtype='<U1')
         return values, counts, labels
 
     def str_to_onehot(self, text: str) -> np.ndarray:

@@ -10,29 +10,49 @@ from .many_to_more import ManyToMoreCollatorSeq2Seq2, ManyToMoreDS, compute_cer
 from .demapper_lstm import DemapperLSTM
 from .fast_mapper import LemmatizerBMP
 
-
+#from torch import Tensor
+#import torch
 class SeqDecoder(torch.nn.Module):
-    def __init__(self, output_dim, emb_dim, hid_dim, num_layers=1):
+    def __init__(self, input_sz: int, output_sz: int, hidden_size: int =-1, band: int = 5, band_output: Literal['batch_time_band_channel', 'batch+time_band_channel', 'batch_time+band_channel'] ='batch_time_band_channel'):
         super().__init__()
-        self.embedding = torch.nn.Embedding(output_dim, emb_dim)
-        self.rnn = torch.nn.LSTM(emb_dim, hid_dim, num_layers=num_layers, batch_first=True)
-        self.fc_out = torch.nn.Linear(hid_dim, output_dim)
+        if hidden_size == -1:
+            hidden_size = input_sz
+        self.fc_in = torch.nn.Linear(input_sz, hidden_size)
+        self.rnn_cell = torch.nn.LSTMCell(hidden_size, hidden_size)
+        self.fc_out = torch.nn.Linear(hidden_size, output_sz)
+        self.hidden_size = hidden_size
+        self.band = band
+        self.band_output = band_output
+        self.output_sz = output_sz
+        self.input_sz = input_sz
 
-    def forward(self, input_token, hidden):
-        """
-        input_token: (batch_size) - single timestep token ids
-        hidden: (num_layers, batch_size, hid_dim)
+    def forward(self, btc_x: Tensor) -> Tensor:
+        #assert btc_x.size(0) == 1, "Batch size must be 1"  # TODO(anguelos): implement batch processing
+        btc_x = self.fc_in(btc_x)
+        btc_x = torch.relu(btc_x)
+        #tbc_x = btc_x.permute(1, 0, 2)  # Change to (seq_len, batch, embedding_dim)
+        bt_t_c_x = btc_x.reshape(-1, 1, btc_x.size(2))  # (seq_len, batch, embedding_dim)
+        previous_output = torch.zeros((bt_t_c_x.size(0), self.hidden_size), device=btc_x.device)
+        #hidden_state = torch.zeros((tbc_x.size(0), self.hidden_size), device=btc_x.device)
+        hidden_state = bt_t_c_x[:, 0, :]
+        outputs = []
+        for _ in range(self.band):
+            previous_output, hidden_state = self.rnn_cell(previous_output, (previous_output, hidden_state))
+            outputs.append(self.fc_out(previous_output))
+        bt_band_c_outputs = torch.cat([o.unsqueeze(1) for o in outputs], dim=1)  # (seq_len, band, output_sz)
+        if self.band_output == 'batch+time_band_channel':
+            return bt_band_c_outputs
+        b_t_band_c_outputs = bt_band_c_outputs.reshape(btc_x.size(0), -1, self.band, self.output_sz) 
+        print(f"outputs[0].shape: {outputs[0].shape} bt_band_c_outputs.shape: {bt_band_c_outputs.shape}")
+        if self.band_in_batch_outputs:
+            return bt_band_c_outputs.reshape(-1, self.output_sz)  # (batch*seq_len*band, output_sz)
+        else:
+            return
+        btc_outputs = bt_band_c_outputs.reshape(btc_x.size(0), -1, self.output_sz)  # (batch, seq_len*band, output_sz)
+        #btc_outputs = tbc_outputs.permute(1, 0, 2)  # Change back to (batch, seq_len, output_sz)
+        return btc_outputs
 
-        returns:
-          output: (batch_size, output_dim) logits
-          hidden: (num_layers, batch_size, hid_dim)
-        """
-        # add time dimension (step = 1)
-        input_token = input_token.unsqueeze(1)          # (B, 1)
-        embedded = self.embedding(input_token)          # (B, 1, emb_dim)
-        output, hidden = self.rnn(embedded, hidden)     # output: (B, 1, H)
-        prediction = self.fc_out(output.squeeze(1))     # (B, output_dim)
-        return prediction, hidden
+#d=SeqDecoder(11,13,17);inputs = torch.rand(3, 7, 11); res = d(inputs)
 
 class DemapperLSTMSeq2Seq2(DemapperLSTM):
     def __init__(self, input_mapper: Union[str, LemmatizerBMP], output_mapper: Union[str, LemmatizerBMP],
