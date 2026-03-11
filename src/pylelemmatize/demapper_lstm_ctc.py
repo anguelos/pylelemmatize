@@ -263,7 +263,7 @@ class DemapperLSTMCTC(DemapperLSTM):
 
                     pred_lab = np.array([c for c in pred_lab if c != self.ctc_epsilon_label])
                     tgt_lab = np.array([c for c in tgt_lab if c != self.ctc_epsilon_label])
-
+                    
                     total_correct += max(len(pred_lab)-compute_cer(pred_lab, tgt_lab, normalize=False), 0)
                     total_lengths += len(tgt_lab)
                 

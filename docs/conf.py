@@ -7,8 +7,8 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 
-version = '0.1.1'
-release = '0.1.1'
+version = '0.2.1'
+release = '0.2.1'
 import os
 import sys
 from datetime import datetime

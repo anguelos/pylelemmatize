@@ -486,8 +486,6 @@ class ManyToMoreCollatorSeq2Seq2(ManyToMoreCollator):
         >>> print(src_tensor.shape)  # torch.Size([1, 3])
         >>> print(tgt_tensor.shape)  # torch.Size([1, 11])
     """
-    def __init__(self, max_unalignment: int = -1):
-        self.max_unalignment = max_unalignment
     
     def run_srcs_and_tgts(self, batch: List[Tuple[Tensor, Tensor]]) -> Tuple[Tensor, Tensor]:
         assert len(batch) == 1
@@ -506,9 +504,9 @@ class ManyToMoreCollatorSeq2Seq2(ManyToMoreCollator):
         return srcs.unsqueeze(0), tgts_tensor
 
     def __init__(self, src_alphabet: str, tgt_alphabet: str,
-                 aligned_substrings: List[List[Tuple[str, str]]],
+                 aligned_substrings: List[List[Tuple[str, str]]]=[],
                  onehot_input: bool=False, onehot_output: bool=False,
-                 return_torch: bool=True, return_ctc: bool=False, max_unalignemet: int = 5):
+                 return_torch: bool=True, return_ctc: bool=False, max_unalignment: int = 5):
         self.onehot_input = onehot_input
         self.onehot_output = onehot_output
         self.aligned_substrings = aligned_substrings
@@ -516,8 +514,8 @@ class ManyToMoreCollatorSeq2Seq2(ManyToMoreCollator):
         self.output_mapper = LemmatizerBMP(tgt_alphabet)
         self.return_torch = return_torch
         self.return_ctc = return_ctc
-        self.max_unalignemet = max_unalignemet
-        assert max_unalignemet < self.get_max_dst_len(), "max_unalignemet must be less than maximum target length"
+        self.max_unalignment = max_unalignment
+        assert max_unalignment < self.get_max_dst_len(), "max_unalignment must be less than maximum target length"
     
     def get_max_dst_len(self) -> int:
         max_len = 0
@@ -531,6 +529,7 @@ class ManyToMoreCollatorSeq2Seq2(ManyToMoreCollator):
         return len(self.aligned_substrings)
 
     def __getitem__(self, idx: int) -> Tuple[str, str]:
+        raise NotImplementedError("This class is not yet finished")
         aligned_substrings = self.aligned_substrings[idx]
         src_parts, tgt_parts = zip(*aligned_substrings)
 

@@ -34,7 +34,7 @@ setup(
             'll_extract_corpus_alphabet=pylelemmatize.main_functions:main_alphabet_extract_corpus_alphabet',
             'll_test_corpus_on_alphabets=pylelemmatize.all_charsets:main_map_test_corpus_on_alphabets',
             'll_evaluate_merges=pylelemmatize.main_functions:main_alphabet_evaluate_merges',
-            'll_extract_transcription_from_page_xml=pylelemmatize.util:main_extract_transcription_from_page_xml',
+            'll_extract_transcription_from_page_xml=pylelemmatize.util.util:main_extract_transcription_from_page_xml',
             'll_many_to_more_train_ctc=pylelemmatize.demapper_lstm_ctc:main_train_many_to_more_ctc',
             'll_many_to_more_train_ctc_icdar_correct=pylelemmatize.demapper_lstm_ctc:main_train_many_to_more_ctc_icdar_correct',
             'll_many_to_more_train_seq2seq2=pylelemmatize.demapper_seq2seq2:main_train_many_to_more_seq2seq2',
