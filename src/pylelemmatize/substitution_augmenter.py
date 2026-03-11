@@ -264,19 +264,6 @@ class CharConfusionMatrix:
             return self.distort_string(seq)
         else:
             raise ValueError(f"Unsupported input type: {type(seq)}")
-        
-
-# def create_substitutiononly_parallel_corpus(textlines: List[Tuple[str, str]]):
-#     alphabet = "".join(sorted(set("".join([f"{p}{g}" for p, g in textlines]))))
-#     # Create a list to hold the modified text lines
-#     modified_lines = []
-#     for prediction, groundtruth in textlines:
-#         # Call the edit_distance_with_confusion function
-#         dist, conf, labels, no_sub = edit_distance_with_confusion(prediction, groundtruth, alphabet)
-#         # Append the no_substitution version of s1 to the modified lines
-#         modified_lines.append((no_sub, groundtruth))
-#     return modified_lines
-
 
 
 def main_get_augmented_substitutiononly_parallel_corpus():

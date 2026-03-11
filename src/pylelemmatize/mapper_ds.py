@@ -1,3 +1,5 @@
+import re
+import sys
 from typing import List, Literal, Optional, Tuple, Union
 import torch
 from .fast_mapper import LemmatizerBMP
@@ -16,7 +18,29 @@ class Seq2SeqDs:
         onehot = torch.zeros([labels.size(0), max_label + 1], dtype=torch.float32)
         onehot[torch.arange(len(labels)), labels] = 1.0
         return onehot
-    
+
+    @staticmethod
+    def load_icdar2019_parallel_txt_corpus(input_paths: Union[str, List[str]], max_insertions: int, min_length: int, max_length: int) -> List[Tuple[List[str], List[str]]]:
+        for file in input_paths:
+            with open(file, 'r', encoding='utf-8') as f:
+                original_ocr, alighend_ocr, alligned_gt = f.read().strip().split("\n")
+            alighend_ocr = alighend_ocr.split("[OCR_aligned]")[1]
+            alligned_gt = alligned_gt.split("[ GS_aligned]")[1]
+            if len(alligned_gt) != len(alighend_ocr.replace("@","")):
+                print(f"Warning: Original input and OCR aligned string have different lengths after removing '@' characters in file {file}.", file=sys.stderr)
+                continue
+            if alighend_ocr.replace("@","") != original_ocr:
+                print(f"Warning: OCR aligned string and GT aligned string have different lengths in file {file}.", file=sys.stderr)
+                continue
+            pieces_idx = []
+            last_end = 0
+            for i in re.finditer(r'@' * (max_insertions - 1) + r'@+', alighend_ocr):
+                start, end = i.span()
+                pieces_idx.append((last_end, start))
+                last_end = end
+            pieces_idx.append((last_end, len(alighend_ocr)))
+
+
     @staticmethod
     def load_parallel_txt_corpus(input_glob: Union[str, List[str]], output_glob: Union[str, List[str]], check_integrity: Literal["cleanup", "raise", "ignore"] = "cleanup") -> List[Tuple[List[str], List[str]]]:
         if isinstance(input_glob, str):

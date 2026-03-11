@@ -83,9 +83,9 @@ def main_alphabet_extract_corpus_alphabet():
                 except Exception as e:
                     print(f"Error occurred while decoding {unidecode(names[n])}: {e}", file=sys.stderr)
                     udc_ord = -1
-                print(f"CHR: {repr(names[n])}, # {ord(names[n])}, UDC: {repr(unidecode(names[n]))}, UDC # {udc_ord}: {freqs[n]}", file=sys.stderr)
+                print(f"CHR: {repr(str(names[n]))}, # {ord(names[n])}, UDC: {repr(unidecode(names[n]))}, UDC # {udc_ord}: {freqs[n]}", file=sys.stderr)
             else:
-                print(f"{repr(names[n])}, {ord(names[n])}: {freqs[n]}", file=sys.stderr)
+                print(f"{repr(str(names[n]))}, {ord(names[n])}: {freqs[n]}", file=sys.stderr)
         print(f"Computed Histogram for {len(corpus_str)} in {time.time() - ht :.2f}", file=sys.stderr)
 
     if args.verbose:

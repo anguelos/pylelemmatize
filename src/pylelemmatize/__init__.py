@@ -1,4 +1,5 @@
 from typing import Dict, Literal, Optional
+from . information_counting import information_measurements
 from .char_distance import char_similarity
 from .abstract_mapper import AbstractLemmatizer, GenericLemmatizer, fast_cer, fast_numpy_to_str, fast_str_to_numpy
 from .fast_mapper import LemmatizerBMP
@@ -6,15 +7,18 @@ from .fast_mapper import LemmatizerBMP
 from .all_charsets import Charsets
 charsets = Charsets()
 
-from .util import extract_transcription_from_page_xml, main_extract_transcription_from_page_xml, print_err
+from .util import print_err, print_colored_text, print_error_types, compute_cer, load_textline_pairs, XMLTextlines, XMLMixedTextlines, XMLAltoTextlines, extract_text_from_htr_xml
 import sys
 from .philogeny import main_char_similarity_tree
 from .version import version
 from .substitution_augmenter import CharConfusionMatrix
+from .phoc import PHOC
+
 __version__ = version
 
 
 default_unknown_chr = "�"
+
 
 def llemmatizer(src_alphabet_str: str, dst_alphabet_str: Optional[str]=None,
                   mapper_type: Literal["fast", "generic", "guess"] = "guess", unknown_chr: str = default_unknown_chr,
@@ -44,11 +48,11 @@ def llemmatize(txt: str, dst_alphabet_str: str, **kwargs) -> str:
     return tmp_llemmatizer(txt)
 
 
-__all__ = ["llemmatizer", "llemmatize", "AbstractLemmatizer", "GenericLemmatizer", "LemmatizerBMP",
-           "char_similarity", "fast_cer", "fast_numpy_to_str", "fast_str_to_numpy",
+__all__ = ["information_measurements", "llemmatizer", "llemmatize", "AbstractLemmatizer", "GenericLemmatizer", "LemmatizerBMP",
+           "char_similarity", "fast_cer", "fast_numpy_to_str", "fast_str_to_numpy", "load_textline_pairs",
            "Charsets", "charsets",
-           "extract_transcription_from_page_xml", "print_err",
-           "CharConfusionMatrix", "__version__"]
+           "print_err", "XMLTextlines", "XMLMixedTextlines", 
+           "CharConfusionMatrix", "__version__", "PHOC"]
 
 if "torch" in sys.modules or "sphinx" in sys.modules:  # to allow doc generation without torch
     from .mapper_ds import Seq2SeqDs

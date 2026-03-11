@@ -14,7 +14,7 @@ def main_train_substitution_only_postcorrection(argv=sys.argv, **kwargs: Dict[st
     #from .charsets import allbmp_encoding_alphabet_strings
     
     from .demapper_lstm import DemapperLSTM
-    from .util import print_err
+    from .util.util import print_err
     from .mapper_ds import Seq2SeqDs
     #import pylelemmatize
     import numpy as np
@@ -137,7 +137,7 @@ def main_postcorrection_infer():
     import fargv
     from pathlib import Path
     from pylelemmatize.demapper_lstm import DemapperLSTM
-    from pylelemmatize.util import print_err
+    from pylelemmatize.util.util import print_err
     import sys
     import tqdm
     p = {
