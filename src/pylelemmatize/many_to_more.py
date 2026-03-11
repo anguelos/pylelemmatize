@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod, abstractmethod
 from collections import defaultdict
+import glob
 import random
 import sys
 import time
@@ -95,9 +96,10 @@ class ManyToMoreDS():
             textlines_appropriate_sizes.append((inp, out))
         inputs, outputs = zip(*textlines_appropriate_sizes)
         if src_alphabet is None:
-            src_alphabet = set(''.join(inputs))
+            src_alphabet = ''.join(sorted(set(''.join(inputs))))
         if tgt_alphabet is None:
-            tgt_alphabet = set(''.join(outputs))
+            tgt_alphabet = ''.join(sorted(set(''.join(outputs))))
+        alphabet_str = ''.join(sorted(set(src_alphabet + tgt_alphabet)))
         textlines_appropriate_alphabets = []
         aligned_substrings: List[List[Tuple[str, str]]] = []
         for inp, out in textlines_appropriate_sizes:
@@ -126,16 +128,153 @@ class ManyToMoreDS():
             progress.close()
         src_alphabet = ''.join(sorted(src_alphabet))
         tgt_alphabet = ''.join(sorted(tgt_alphabet))
-        res = ManyToMoreDS(aligned_substrings=aligned_substrings, src_alphabet=src_alphabet, tgt_alphabet=tgt_alphabet, 
+        res = ManyToMoreDS(aligned_substrings=aligned_substrings, src_alphabet=alphabet_str, tgt_alphabet=alphabet_str, 
                            onehot_input=onehot_input, onehot_output=onehot_output)
         if verbose:
             print(f"Created ManyToMoreDS with {len(res)} samples. aligned_substrings: {len(aligned_substrings)}", file=sys.stderr)
         return res
-    
+
+    @staticmethod
+    def create_correction_from_icdar19comp_data(filelist: Union[List[str], str], min_src_len: int=40,
+                          max_src_len: int=5000, min_tgt_len: int=10, max_tgt_len: int=5000, band: int = 70,
+                          alphabet: Optional[str]=None,
+                          onehot_input: bool = False, onehot_output: bool = False, allow_start_insertions: bool=False,
+                          max_ins_length: int = -1, verbose: bool=False, forbiten_characters: Optional[set]="=¥õ✓", random_crop_length: int = -1) -> List[Tuple[str, str]]:
+        """
+        2019 ICDAR Post-OCR Text Correction Competition dataset contains aligned OCR and GT textlines in a format where each line contains three parts: 
+            the original input, the OCR-aligned string, and the GT-aligned string. The aligned strings use "@" to indicate gaps (insertions or deletions) 
+            in the alignment. This function processes these aligned textlines to create a ManyToMoreDS dataset suitable for training correction models.
+        
+        Validation set CERs on the original aligned textlines (without splitting long insertions) for each language are as follows:
+            'SL': (0.19628795782768657, 17873, 91055.0),
+            'FI': (0.19785019016308902, 12277, 62052),
+            'FR': (0.0906146358156801, 67786, 748069.0),
+            'BG': (0.21622334724031594, 39336, 181923.0),
+            'CZ': (0.09090669408631917, 6896, 75858),
+            'DE': (0.27270782853211284, 182327, 668580.0),
+            'ES': (0.4484517444320498, 58292, 129985),
+            'NL': (0.32006913806604403, 67034, 209436),
+            'PL': (0.26900244972369397, 23609, 87765),
+            'EN': (0.19785019016308902, 12277, 62052)
+        
+        Parameters:
+        -----------
+        filelist: Union[List[str], str] 
+            A list of file paths or a glob pattern string to read the aligned textlines from.
+        min_src_len: int
+            Minimum length of the source (OCR) textline to be included in the dataset.
+
+        """
+        if isinstance(filelist, str):
+            filelist = glob.glob(filelist)
+            assert len(filelist) > 0, f"No files found for pattern: {filelist}"
+        textlines_appropriate_sizes = []
+        all_texts = []
+        aligned_input_outpus = []
+        ins_lens = []
+        del_lens = []
+        rejected = 0
+        for n, file in enumerate(filelist):
+            with open(file, 'r', encoding='utf-8') as f:
+                all_text = f.read().strip()
+                for c in forbiten_characters:
+                    all_text = all_text.replace(c, "")
+                try:
+                    original_input, ocr_aligned, gt_aligned = all_text.splitlines()
+                except ValueError:
+                    print(f"Skipping file {file} due to unexpected format. Expected 3 lines but got {len(all_text.splitlines())}. Content:\n{all_text}", file=sys.stderr)
+                    continue
+                original_input = original_input.split("[OCR_toInput]")[1]
+                ocr_aligned = ocr_aligned.split("[OCR_aligned]")[1]
+                gt_aligned = gt_aligned.split("[ GS_aligned]")[1]
+            if ocr_aligned.replace("@","") != original_input:
+                print(f"{rejected} from {n} Warning: OCR aligned string is different to original input after removing '@' characters in file {file}. ", file=sys.stderr)
+                #print(f"{repr(ocr_aligned.replace('@',''))}\n{repr(original_input)}\n", file=sys.stderr)
+                rejected += 1
+                continue
+            
+            while len(gt_aligned) > 0 and gt_aligned[0] == "@":
+                gt_aligned = gt_aligned[1:]
+                ocr_aligned = ocr_aligned[1:]
+            while len(gt_aligned) > 0 and gt_aligned[-1] == "@":
+                gt_aligned = gt_aligned[:-1]
+                ocr_aligned = ocr_aligned[:-1]
+            aligned_input_outpus.append((ocr_aligned, gt_aligned))
+
+
+        if verbose:
+            print(f"Read {len(aligned_input_outpus)} aligned input-output pairs from {len(filelist)} files.", file=sys.stderr)
+            print(f"Max insertion length in OCR aligned: {max(ins_lens) if ins_lens else 0}, Max deletion length in GT aligned: {max(del_lens) if del_lens else 0}", file=sys.stderr)
+            print(f"Rejected {rejected} files due to OCR alignment issues.", file=sys.stderr)
+
+        if max_ins_length > 0:
+            ocr_aligned, gt_aligned = zip(*aligned_input_outpus)
+            ocr_str = '\n'.join(ocr_aligned)
+            gt_str = '\n'.join(gt_aligned)
+            assert len(ocr_str) == len(gt_str)
+            pieces = []
+            last_end = 0
+
+            for long_ins in re.finditer("@"* (max_ins_length -1) + "@+", gt_str):
+                start, end = long_ins.span()
+                pieces.append((ocr_str[last_end:start], gt_str[last_end:start]))
+                last_end = end
+            pieces.append((ocr_str[last_end:], gt_str[last_end:]))
+            pieces = [p for p in pieces if len(p[0]) > min_src_len and len(p[1]) > min_tgt_len]
+            
+            ocr_str = '\n'.join([p[0] for p in pieces])
+            gt_str = '\n'.join([p[1] for p in pieces])
+
+            assert len(ocr_str) == len(gt_str)
+            aligned_input_outpus = list(zip(ocr_str.splitlines(), gt_str.splitlines()))
+        
+        ocr_str = '\n'.join([pair[0] for pair in aligned_input_outpus])
+        gt_str = '\n'.join([pair[1] for pair in aligned_input_outpus])
+
+        occured_chars = set(ocr_str + gt_str) - set("@")
+
+        if alphabet is None:
+            alphabet = ''.join(sorted(occured_chars))
+        else:
+            assert set(alphabet).issuperset(occured_chars), f"Provided alphabet '{alphabet}' does not cover all characters in the data"
+            assert "@" not in alphabet, "Alphabet cannot contain '@' character as it is used for alignment gaps"
+
+        aligned_lines: List[List[Tuple[str, str]]] = []
+        for ocr_aligned, gt_aligned in aligned_input_outpus:
+            if len(ocr_aligned.replace("@", "")) == 0 or len(gt_aligned.replace("@", "")) == 0:
+                continue
+            if not allow_start_insertions and ocr_aligned[0] == "@":
+                while ocr_aligned[0] == "@":
+                    ocr_aligned = ocr_aligned[1:]
+                    gt_aligned = gt_aligned[1:]
+            aligned_substrings = [[ocr_aligned[0].replace("@", ""), gt_aligned[0].replace("@", "")]]
+            pending_outputs = ""
+            
+            for n in range(1, len(ocr_aligned)):
+                if ocr_aligned[n] == "@": # insertion in input
+                    pending_outputs += gt_aligned[n]
+                else:
+                    if pending_outputs != "":
+                        aligned_substrings[-1] = [aligned_substrings[-1][0], aligned_substrings[-1][1] + pending_outputs]
+                        pending_outputs = ""
+                    try:
+                        aligned_substrings.append([ocr_aligned[n], gt_aligned[n]])
+                    except IndexError:
+                        print(f"Aligned substring:\n{repr(ocr_aligned)}\n{repr(gt_aligned)} Failing at '{n}'")
+                        raise IndexError(f"Aligned substring:\n{repr(ocr_aligned)}\n{repr(gt_aligned)} Failing at '{n}'")
+                    
+            aligned_lines.append(aligned_substrings)
+        breakpoint()
+        print(f"Created {len(aligned_lines)} aligned line pairs after processing insertions. random_crop_length={random_crop_length}", file=sys.stderr)
+        res = ManyToMoreDS(aligned_substrings=aligned_lines, src_alphabet=alphabet, tgt_alphabet=alphabet, 
+                           onehot_input=onehot_input, onehot_output=onehot_output, random_crop_length=random_crop_length)
+        return res
+
+
     def __init__(self, src_alphabet: str, tgt_alphabet: str,
                  aligned_substrings: List[List[Tuple[str, str]]],
                  onehot_input: bool=False, onehot_output: bool=False,
-                 return_torch: bool=True, return_ctc: bool=False, max_unalignemet: int = 5):
+                 return_torch: bool=True, return_ctc: bool=False, max_unalignemet: int = 5, random_crop_length: int = -1):
         self.onehot_input = onehot_input
         self.onehot_output = onehot_output
         self.aligned_substrings = aligned_substrings
@@ -144,6 +283,7 @@ class ManyToMoreDS():
         self.return_torch = return_torch
         self.return_ctc = return_ctc
         self.max_unalignemet = max_unalignemet
+        self.random_crop_length = random_crop_length
         assert max_unalignemet < self.get_max_dst_len(), "max_unalignemet must be less than maximum target length"
     
     def get_max_dst_len(self) -> int:
@@ -157,7 +297,7 @@ class ManyToMoreDS():
     def __len__(self):
         return len(self.aligned_substrings)
 
-    def __getitem__(self, idx: int) -> Tuple[str, str]:
+    def __getitem__(self, idx: int, return_info: bool = False) -> Tuple[str, str]:
         aligned_substrings = self.aligned_substrings[idx]
         src_parts, tgt_parts = zip(*aligned_substrings)
 
@@ -179,7 +319,17 @@ class ManyToMoreDS():
         else:
             src = np.array(src, dtype=np.int16).reshape(-1)
             tgt = [np.array(t, dtype=np.int16) for t in tgt]
-        return src[0], tgt
+        
+        src = src[0]
+        if len(tgt) > self.random_crop_length and self.random_crop_length > 0:
+            start_idx = random.randint(0, len(tgt) - self.random_crop_length)
+            tgt = tgt[start_idx: start_idx + self.random_crop_length]
+            src = src[start_idx: start_idx + self.random_crop_length]
+        if not return_info:
+            return src, tgt
+        else:
+            info = f"Sample {idx}:\nAligned substrings: {aligned_substrings}\nSource sequence (int labels): {src}\nTarget sequence (list of int label sequences): {torch.cat(tgt)}"
+            return src, tgt, info
     
     def get_cer(self, idx: int=-1) -> Tuple[int, int]:
         if idx < 0:
@@ -205,6 +355,7 @@ class ManyToMoreDS():
                 'tgt_alphabet': self.output_mapper.src_alphabet_str,
                 'return_torch': self.return_torch,
                 'return_ctc': self.return_ctc,
+                'random_crop_length': self.random_crop_length
                 }
         torch.save(data, dataset_path)
     
@@ -297,7 +448,7 @@ class ManyToMoreCollator(ABC):
         elif isinstance(batch[0], Tensor):  # sources only
             return self.run_srcs_only(batch)  # type: ignore
         else:
-            raise ValueError("Batch must be a list of tuples or a list of tensors")
+            raise ValueError(f"Batch must be a list of tuples or a list of tensors but got {type(batch)} with elements of type {type(batch[0])} batch:{repr(batch)}")
 
 
 class ManyToMoreCollatorSeq2Seq2(ManyToMoreCollator):
@@ -353,6 +504,51 @@ class ManyToMoreCollatorSeq2Seq2(ManyToMoreCollator):
                 raise RuntimeError(f"Target length {len(tgt)} exceeds max_unalignment {max_unalignment}")
             tgts_tensor[i, :len(tgt)] = tgt
         return srcs.unsqueeze(0), tgts_tensor
+
+    def __init__(self, src_alphabet: str, tgt_alphabet: str,
+                 aligned_substrings: List[List[Tuple[str, str]]],
+                 onehot_input: bool=False, onehot_output: bool=False,
+                 return_torch: bool=True, return_ctc: bool=False, max_unalignemet: int = 5):
+        self.onehot_input = onehot_input
+        self.onehot_output = onehot_output
+        self.aligned_substrings = aligned_substrings
+        self.input_mapper = LemmatizerBMP(src_alphabet)
+        self.output_mapper = LemmatizerBMP(tgt_alphabet)
+        self.return_torch = return_torch
+        self.return_ctc = return_ctc
+        self.max_unalignemet = max_unalignemet
+        assert max_unalignemet < self.get_max_dst_len(), "max_unalignemet must be less than maximum target length"
+    
+    def get_max_dst_len(self) -> int:
+        max_len = 0
+        for aligned_substrings in self.aligned_substrings:
+            tgt_len = sum([len(part[1]) for part in aligned_substrings])
+            if tgt_len > max_len:
+                max_len = tgt_len
+        return max_len
+    
+    def __len__(self):
+        return len(self.aligned_substrings)
+
+    def __getitem__(self, idx: int) -> Tuple[str, str]:
+        aligned_substrings = self.aligned_substrings[idx]
+        src_parts, tgt_parts = zip(*aligned_substrings)
+
+        # src is a list contianing single sequence of all input characters concatenated
+        # tgt is a list containing [every target substring as a separate sequence]
+        src: List[np.ndarray] = [self.input_mapper.str_to_intlabel_seq(c) for c in src_parts]
+        src = [np.concatenate(src, axis=0)]
+        tgt: List[np.ndarray] = [self.output_mapper.str_to_intlabel_seq(c) for c in tgt_parts]  
+
+        if self.onehot_input:
+            raise NotImplementedError("onehot_input is not implemented yet")
+
+        if self.return_torch:            
+            #print(f"input_lengths = {set([len(x) for x in src])}")
+            #print(f"output_lengths = {set([len(x) for x in tgt])}")
+            #src = [Tensor(seq).long().reshape(-1) for seq in src]
+            src = [Tensor(seq.astype(np.int64)).long().reshape(-1) for seq in src]
+
 
     def run_srcs(self, batch: List[Tensor]) -> Tensor:
         assert len(batch) == 1 and isinstance(batch[0], Tensor)

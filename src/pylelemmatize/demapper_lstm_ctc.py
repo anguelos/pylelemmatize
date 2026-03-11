@@ -197,6 +197,7 @@ class DemapperLSTMCTC(DemapperLSTM):
             model.load_state_dict(checkpoint['state_dict'])
         model.history = checkpoint['history']
         model.output_to_input_mapping = model.history.get('output_to_input_mapping', {})
+        print(f"Resumed model from {path} with input alphabet: {model.input_mapper.src_alphabet_str} and output alphabet: {model.output_mapper.src_alphabet_str}, epochs: {len(model.history)}", file=sys.stderr)
         return model
     
     @classmethod
@@ -259,21 +260,27 @@ class DemapperLSTMCTC(DemapperLSTM):
                         tgt_lab = tgt_lab.cpu().numpy()
                     if len(pred_lab) == 0 or len(tgt_lab) == 0:
                         continue
+
+                    pred_lab = np.array([c for c in pred_lab if c != self.ctc_epsilon_label])
+                    tgt_lab = np.array([c for c in tgt_lab if c != self.ctc_epsilon_label])
+
                     total_correct += max(len(pred_lab)-compute_cer(pred_lab, tgt_lab, normalize=False), 0)
                     total_lengths += len(tgt_lab)
+                
                 if n < print_debug_samples:
                     input_seq = src_tensor_labels[0].cpu().numpy().astype(np.int16)
                     input_seq = input_seq[input_seq != self.ctc_epsilon_label]
                     input_string = ''.join([valid_ds.input_mapper.intlabel_seq_to_str(input_seq)])
                     target_seq = tgt_tensor_labels[0].cpu().numpy().astype(np.int16)
+                    target_seq = target_seq[target_seq != self.ctc_epsilon_label]
                     target_string = ''.join([valid_ds.output_mapper.intlabel_seq_to_str(target_seq)])
                     pred_string = predicted_texts[0]
                     pred_str_list.append((input_string, target_string, pred_string))
         if print_debug_samples > 0:
             for input_string, target_string, pred_string in pred_str_list:
-                print(f"\nINPUT >{input_string}")
-                print(f"TARGETG >{target_string}")
-                print(f"PRED.   >{print_error_types(target_string, pred_string)}")
+                print(f"\nINPUT  >{input_string}")
+                print(f"TARGET >{target_string.replace('�', '')}")
+                print(f"PRED.  >{print_error_types(pred_string.replace('�', ''), target_string.replace('�', ''), )}")
         self.history['valid_loss'][self.epoch] = total_loss / len(valid_ds)
         acc = total_correct / total_lengths if total_lengths > 0 else 0.0
         if acc > max(self.history['valid_acc'].values(), default=-1.0):
@@ -299,6 +306,7 @@ class DemapperLSTMCTC(DemapperLSTM):
             desc = f"Training Epoch {self.epoch} Val acc: N/A"
         train_dl = torch.utils.data.DataLoader(dataset = train_ds, batch_size=batch_size, shuffle=False, collate_fn=self.collator)
         for n, (src_tensor_labels, tgt_tensor_labels) in tqdm(enumerate(train_dl), total=len(train_ds), disable=not progress, desc=desc):
+
             src_tensor_labels = src_tensor_labels.to(device)
             tgt_tensor_labels = tgt_tensor_labels.to(device)
 
@@ -308,13 +316,12 @@ class DemapperLSTMCTC(DemapperLSTM):
             tgt_lengths = torch.tensor([[tgt_tensor_labels.size(1)]], dtype=torch.long)
 
             sparse_output = self(src_tensor_labels)
-            loss = criterion(sparse_output.log_softmax(2)[0, :], tgt_tensor_labels[0, :],src_lengths.view(-1),tgt_lengths.view(-1))
+            loss = criterion(sparse_output.log_softmax(2)[0, :], tgt_tensor_labels[0, :], src_lengths.view(-1), tgt_lengths.view(-1))
             loss.backward()
             if (n + 1) % pseudo_batch_size == 0:
                 optimizer.step()
                 optimizer.zero_grad()
             total_loss += loss.item()
-
             with torch.no_grad():
                 predicted_texts, predicted_labels, confidence = self.ctc_decode(sparse_output)
                 for pred_lab, tgt_lab in zip(predicted_labels, tgt_tensor_labels):
@@ -342,7 +349,7 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
     from pylelemmatize.mapper_ds import Seq2SeqDs
     from pylelemmatize.fast_mapper import LemmatizerBMP
     from pylelemmatize.demapper_lstm_ctc import DemapperLSTMCTC
-    from pylelemmatize.util import load_textline_pairs
+    from pylelemmatize.util.util import load_textline_pairs
     import glob
     import tqdm
     #from .charsets import allbmp_encoding_alphabet_strings
@@ -419,3 +426,118 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
         print(f"Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_acc:.4f}")
         net.save(args.output_model_path)
     print(f"Ending {args.nb_epochs} epochs... network has completed {net.epoch} epochs", file=sys.stderr)
+
+
+def main_train_many_to_more_ctc_icdar_correct(argv=sys.argv, **kwargs: Dict[str, Any]):  # pragma: no cover
+    import fargv
+    from pathlib import Path
+    from pylelemmatize.mapper_ds import Seq2SeqDs
+    from pylelemmatize.fast_mapper import LemmatizerBMP
+    from pylelemmatize.demapper_lstm_ctc import DemapperLSTMCTC
+    from pylelemmatize.util import load_textline_pairs
+    import glob
+    import tqdm
+
+    import pylelemmatize
+    import numpy as np
+    import random
+    p = {
+        "train_files": set(glob.glob("sample_data/icdar2019_ocr_comp/training_18M_without_Finnish/EN/EN1/*.txt")),
+        "validation_files": set(glob.glob("sample_data/icdar2019_ocr_comp/evaluation_4M_without_Finnish/EN/EN1/*.txt")),
+        "mode": ("correction", "det_ins", "det_dels"),
+        "hidden_sizes": "512,512,512",
+        "dataset_cache_path": "./tmp/many_to_more_icdar_{mode}_ds",
+        "allow_start_insertions": False,
+        "band": 70,
+        "verbose": False,
+        "dropouts": "0.1,0.1,0.1",
+        "pseudo_batch_size": 1,
+        "nb_epochs": 100,
+        "num_workers": 8,
+        "seed": 42,
+        "output_model_path": "./tmp/models/many_to_more_icdar.pt",
+        "train_test_split": 0.8,
+        "max_trainset_sz" : -1,  # -1 means no limit
+        "lr": 0.001,
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "debug_sample": 3,
+        "resume_best_weights": False,
+        "max_unalignment": 10,
+        "train_tokens_per_sample": 200,
+        "validation_tokens_per_sample": 150,
+        "batch_size": 1,
+        "prefer_replication": False,
+    }
+    args, _ = fargv.fargv(p)
+    args.trainset_cache_path = args.dataset_cache_path + "_train.pt"
+    args.validset_cache_path = args.dataset_cache_path + "_valid.pt"
+    args.hidden_sizes = [int(x) for x in args.hidden_sizes.split(",")]
+    args.dropouts = [float(x) for x in args.dropouts.split(",")]
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+
+    if Path(args.trainset_cache_path).is_file():
+        print(f"Trainset Dataset {args.trainset_cache_path} already exists. Loading existing dataset.", file=sys.stderr)
+        train_ds = ManyToMoreDS.load(args.trainset_cache_path, allow_start_insertions=args.allow_start_insertions)
+    else:
+        print(f"Creating trainset dataset at {args.trainset_cache_path}", file=sys.stderr)
+        if args.mode == "correction":
+            train_ds = ManyToMoreDS.create_correction_from_icdar19comp_data(filelist=args.train_files, band=args.band, allow_start_insertions=args.allow_start_insertions, 
+                                                                            max_ins_length=args.max_unalignment, verbose=args.verbose, random_crop_length=args.train_tokens_per_sample)
+        elif args.mode == "det_ins":
+            raise NotImplementedError("det_ins mode is not implemented yet.")
+        elif args.mode == "det_dels":
+            raise NotImplementedError("det_dels mode is not implemented yet.")
+        else:
+            raise ValueError(f"Unsupported mode: {args.mode}")
+        train_ds.save(args.trainset_cache_path)
+        print(f"Trainset dataset cached at {args.trainset_cache_path}", file=sys.stderr)
+
+    if Path(args.validset_cache_path).is_file():
+        print(f"Validset Dataset {args.validset_cache_path} already exists. Loading existing dataset.", file=sys.stderr)
+        valid_ds = ManyToMoreDS.load(args.validset_cache_path, allow_start_insertions=args.allow_start_insertions)
+    else:
+        print(f"Creating validset dataset at {args.validset_cache_path}", file=sys.stderr)
+        if args.mode == "correction":
+            valid_ds = ManyToMoreDS.create_correction_from_icdar19comp_data(filelist=args.validation_files, band=args.band, allow_start_insertions=args.allow_start_insertions, max_ins_length=-1, verbose=args.verbose, 
+                                                             alphabet=train_ds.input_mapper.src_alphabet_str, random_crop_length= args.validation_tokens_per_sample) # we crop for better visualization
+        elif args.mode == "det_ins":
+            raise NotImplementedError("det_ins mode is not implemented yet.")
+        elif args.mode == "det_dels":
+            raise NotImplementedError("det_dels mode is not implemented yet.")
+        else:
+            raise ValueError(f"Unsupported mode: {args.mode}")
+        valid_ds.save(args.validset_cache_path)
+        print(f"Validset dataset cached at {args.validset_cache_path}", file=sys.stderr)
+
+    if args.verbose:
+        print(f"Train set size: {len(train_ds)}")
+        print(f"Validation set size: {len(valid_ds)}")
+
+    net = DemapperLSTMCTC.resume(path=args.output_model_path, 
+                            input_alphabet_str=train_ds.input_mapper.src_alphabet_str, 
+                            output_alphabet_str=train_ds.output_mapper.src_alphabet_str,
+                            hidden_sizes=args.hidden_sizes, 
+                            dropouts=args.dropouts)
+    
+    net = net.to(args.device)
+    if args.verbose:
+        print(f"Model architecture:\n{net}")
+    optimizer, ctc_loss = net.get_one2one_train_objects(args.lr)
+    if args.verbose:
+        print("Validating before training...")
+    net.validate_one2one_epoch(valid_ds=valid_ds, criterion=ctc_loss, batch_size= args.batch_size, progress=args.verbose)
+    net.save(args.output_model_path)
+    if args.verbose:
+        print(f"Initial model saved at {args.output_model_path}")
+    while net.epoch < args.nb_epochs:
+        #   print(ds_err_str)
+        print(f"Training epoch {net.epoch + 1}...")
+        train_loss, train_acc = net.train_one2one_epoch(train_ds, criterion=ctc_loss, optimizer=optimizer,
+                                                        batch_size=args.batch_size, pseudo_batch_size=args.pseudo_batch_size)
+        print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}")
+        valid_loss, valid_acc = net.validate_one2one_epoch(valid_ds, criterion=ctc_loss, batch_size=args.batch_size)
+        print(f"Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_acc:.4f}")
+        net.save(args.output_model_path)
+        print(f"Model saved at {args.output_model_path}", file=sys.stderr)

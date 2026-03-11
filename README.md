@@ -1,5 +1,3 @@
-
-
 <p align="center">
   <picture>
     <!-- Used by Sphinx (relative path inside docs/) -->
@@ -21,8 +19,6 @@
 A framework for assisting transliterations and character-sets in python.
 
 
-
-
 PyLeLemmatize is a Python package for lemmatizing characters. It provides a simple and efficient way to reduce large character sets to simpler ones.
 
 ## Installation
@@ -40,13 +36,13 @@ for installation for coding, look at [development](### Development Installation)
 
 ### Simple letter lemmatization
 ```python
-from pylelemmatize import charsets, llemmatize
+import pylelemmatize as ll
 
 greek_poly_string = "Καὶ ὅτε ἤνοιξεν τὴν σφραγῖδα τὴν ἑβδόμην, ἐγένετο σιγὴ ἐν τῷ οὐρανῷ ὡς ἡμιώριον."
 
 print(f"Polytonic   : {greek_poly_string}")
-print(f"Modern Greek: {llemmatize(greek_poly_string, charsets.iso_8859_7)}")
-print(f"ASCII       : {llemmatize(greek_poly_string, charsets.ascii)}")
+print(f"Modern Greek: {ll.llemmatize(greek_poly_string, ll.charsets.iso_8859_7)}")
+print(f"ASCII       : {ll.llemmatize(greek_poly_string, ll.charsets.ascii)}")
 ```
 Output:
 ```console
@@ -61,18 +57,18 @@ Creating automoatic llemmatizers is expencive O(|input_alphabet|x|output_alphabe
 Once they are created they are equally fast regardless of of their sizes.
 The following IPython codesnipet demonstrates the cost of creating vs applying llemmatizers.
 ```python
-from pylelemmatize import charsets, llemmatizer
+import pylelemmatize as ll
 
 greek_poly_string = "Καὶ ὅτε ἤνοιξεν τὴν σφραγῖδα τὴν ἑβδόμην, ἐγένετο σιγὴ ἐν τῷ οὐρανῷ ὡς ἡμιώριον."
 
 print("Creating autoaligned llemmatizers O(|src_alphabet|x|dst_alphabet|)")
 print("Medium llemmatizer: |34|x|186|")
-%timeit polytonic2modern_greek = llemmatizer(greek_poly_string, charsets.iso_8859_7)
-polytonic2modern_greek = llemmatizer(greek_poly_string, charsets.iso_8859_7)
+%timeit polytonic2modern_greek = ll.llemmatizer(greek_poly_string, ll.charsets.iso_8859_7)
+polytonic2modern_greek = ll.llemmatizer(greek_poly_string, ll.charsets.iso_8859_7)
 
 print("Large llemmatizer: |100|x|3549|")
-%timeit mes2ascii = llemmatizer(charsets.mes3a, charsets.ascii)
-mes2ascii = llemmatizer(charsets.mes3a, charsets.ascii)
+%timeit mes2ascii = ll.llemmatizer(ll.charsets.mes3a, ll.charsets.ascii)
+mes2ascii = ll.llemmatizer(ll.charsets.mes3a, ll.charsets.ascii)
 
 print("\nApplying the medium and large llemmatizers on strings:")
 for inp_str in [greek_poly_string, greek_poly_string * 1000, greek_poly_string * 1000000]:
@@ -105,38 +101,18 @@ String size: 80000000
 521 ms ± 13.2 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 ```
 
-
+### PHOC string embedding
+Pyramyd Histogram Of Characters (PHOC) embeddings have been implemented as a pytorch layer.
+```python
+import torch,pylelemmatize as ll
+phoc = ll.PHOC()
+print(torch.norm(phoc("hello")-phoc("hell")))
+```
 
 ## Command Line Invocation
 
-### Evaluate Merges
-
-```sh
-ll_evaluate_merges -h # get help string with the cli interface
-ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*'
-```
-
-Attention the merge CER is not symetric at all!
-```bash
-# The following gives a CER of 0.0591
-ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("I", "J"), ("i", "j")]'
-# While the following gives a CER of 0.0007
-ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("J", "I"), ("j", "i")]'
-```
-
-### Extract corpus alphabet
-```bash
-ll_extract_corpus_alphabet -h # get help string with the cli interface
-ll_extract_corpus_alphabet -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*'
-```
-
-### Test corpus on alphabets
-```bash
-ll_test_corpus_on_alphabets -h # get help string with the cli interface
-ll_test_corpus_on_alphabets -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*' -alphabets 'bmp_mufi,ascii,mes1,iso8859_2' -verbose
-```
-
 ### Demapping
+Training and using RNNs that reverse character mappings can be done on the CLI without any code editing.
 
 #### Setup
 ```bash
@@ -165,6 +141,35 @@ echo 'a da nat knaw what ta saa. bat a knaw what ta thank.' |ll_infer_one2one -m
 Output:
 ```console
 I do not know what to say, but a know what to think,
+```
+
+
+### Evaluate Merges
+Evaluating the CER introduced by merging multiple symbols to a single ones.
+
+```sh
+ll_evaluate_merges -h # get help string with the cli interface
+ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("u", "v"),  ("U", "V")]'
+```
+
+Attention the merge CER is not symetric at all!
+```bash
+# The following gives a CER of 0.0591
+ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("I", "J"), ("i", "j")]'
+# While the following gives a CER of 0.0007
+ll_evaluate_merges -corpus_glob  './sample_data/wienocist_charter_1/wienocist_charter_1*' -merges '[("J", "I"), ("j", "i")]'
+```
+
+### Extract corpus alphabet
+```bash
+ll_extract_corpus_alphabet -h # get help string with the cli interface
+ll_extract_corpus_alphabet -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*'
+```
+
+### Test corpus on alphabets
+```bash
+ll_test_corpus_on_alphabets -h # get help string with the cli interface
+ll_test_corpus_on_alphabets -corpus_glob './sample_data/wienocist_charter_1/wienocist_charter_1*' -alphabets 'mufibmp,ascii,mes1,iso_8859_2' -verbose
 ```
 
 

@@ -206,7 +206,7 @@ class LemmatizerBMP(GenericLemmatizer):
         labels = np.array(list(labels), dtype='<U1')
         return values, counts, labels
 
-    def str_to_onehot(self, text: str) -> np.ndarray:
+    def str_to_onehot(self, text: str, time_first: bool = True) -> np.ndarray:
         """
         Convert a string to a one-hot encoded representation.
 
@@ -214,16 +214,26 @@ class LemmatizerBMP(GenericLemmatizer):
         ----------
         text : str
             The input string to convert.
+        time_first : bool, optional
+            If True, the output array will have shape (T, C), where T is the length of the string 
+            and C is the number of unique characters. If False, the output will have shape (C, T). 
+            Defaults to True.
 
         Returns
         -------
         np.ndarray
             A one-hot encoded NumPy array representing the input string.
         """
-        label_seq = self.str_to_intlabel_seq(text)
-        return np.eye(len(self), dtype=np.uint8)[label_seq]
+        #raise NotImplemented("Not implemented yet.")
+        seq = self.str_to_intlabel_seq(text)
+        onehot = np.zeros((len(seq), len(self)), dtype=np.double)
+
+        onehot[np.arange(len(seq)), seq] = 1.0
+        if not time_first:
+            onehot = onehot.T
+        return onehot
     
-    def onehot_to_str(self, onehot: np.ndarray) -> str:
+    def onehot_to_str(self, onehot: np.ndarray, time_first: bool = True) -> str:
         """
         Convert a one-hot encoded representation back to a string.
 
@@ -231,7 +241,9 @@ class LemmatizerBMP(GenericLemmatizer):
         ----------
         onehot : np.ndarray
             A one-hot encoded NumPy array to convert.
-
+        time_first : bool, optional
+            If True, the input array is expected to have shape (T, C). If False, it is expected to have shape (C, T). 
+            Defaults to True.
         Returns
         -------
         str
@@ -239,7 +251,7 @@ class LemmatizerBMP(GenericLemmatizer):
         """
         if onehot.ndim == 1:
             onehot = onehot.reshape(1, -1)
-        dense_np_text = np.argmax(onehot, axis=1)
+        dense_np_text = np.argmax(onehot, axis=1 if time_first else 0)
         return self.intlabel_seq_to_str(dense_np_text)
 
     @property

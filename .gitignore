@@ -7,6 +7,9 @@ experiments/
 data/
 sample_data/
 
+# custom stuff
+docs/SAB_chat/
+
 # ----------------------------
 # Sphinx documentation
 # ----------------------------

@@ -12,10 +12,13 @@ import sys
 from .philogeny import main_char_similarity_tree
 from .version import version
 from .substitution_augmenter import CharConfusionMatrix
+from .phoc import PHOC
+
 __version__ = version
 
 
 default_unknown_chr = "�"
+
 
 def llemmatizer(src_alphabet_str: str, dst_alphabet_str: Optional[str]=None,
                   mapper_type: Literal["fast", "generic", "guess"] = "guess", unknown_chr: str = default_unknown_chr,
@@ -49,7 +52,7 @@ __all__ = ["information_measurements", "llemmatizer", "llemmatize", "AbstractLem
            "char_similarity", "fast_cer", "fast_numpy_to_str", "fast_str_to_numpy", "load_textline_pairs",
            "Charsets", "charsets",
            "print_err", "XMLTextlines", "XMLMixedTextlines", 
-           "CharConfusionMatrix", "__version__"]
+           "CharConfusionMatrix", "__version__", "PHOC"]
 
 if "torch" in sys.modules or "sphinx" in sys.modules:  # to allow doc generation without torch
     from .mapper_ds import Seq2SeqDs

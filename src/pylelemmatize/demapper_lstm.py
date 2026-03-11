@@ -408,7 +408,6 @@ def main_train_one2one(argv=sys.argv, **kwargs: Dict[str, Any]):
 
 
 def main_report_demapper():
-    import torch
     import fargv
     from matplotlib import pyplot as plt
     import seaborn as sns
@@ -435,9 +434,6 @@ def main_report_demapper():
         plt.ylabel("Validation Error %")
         plt.grid()
         plt.show()
-        #validation_epochs = sorted(model.history['valid_accuracy'].keys())
-        #results.append((model_path, nb_epochs, validation_epochs))
-    #print(results)
 
 
 def main_infer_one2one(model_path: str ="./tmp/models/model.pt", 

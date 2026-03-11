@@ -317,7 +317,7 @@ class DemapperLSTMSeq2Seq2(DemapperLSTM):
         return self.history['train_loss'][-1], self.history['train_acc'][-1]
 
 
-def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pragma: no cover
+def main_train_many_to_more_seq2seq2(argv=sys.argv, **kwargs: Dict[str, Any]):  # pragma: no cover
     import fargv
     from pathlib import Path
     from pylelemmatize.mapper_ds import Seq2SeqDs
@@ -326,7 +326,7 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
     from pylelemmatize.util import load_textline_pairs
     import glob
     import tqdm
-    #from .charsets import allbmp_encoding_alphabet_strings
+
     import pylelemmatize
     import numpy as np
     import random
@@ -345,7 +345,7 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
         "nb_epochs": 100,
         "num_workers": 8,
         "seed": 42,
-        "output_model_path": "./tmp/models/many_to_more_ctc.pt",
+        "output_model_path": "./tmp/models/many_to_more2.pt",
         "train_test_split": 0.8,
         "max_trainset_sz" : -1,  # -1 means no limit
         "lr": 0.001,
@@ -374,7 +374,7 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
     train_ds_error, train_ds_size = train_ds.get_cer()
     valid_ds_error, valid_ds_size = valid_ds.get_cer()
     ds_err_str = f"Train set cer: {train_ds_error/train_ds_size:.03f} ({train_ds_error}/{train_ds_size})\nValidation set size: {valid_ds_error/valid_ds_size:.03f} ({valid_ds_error}/{valid_ds_size})"
-    net = DemapperLSTMCTC.resume(path=args.output_model_path, 
+    net = DemapperLSTMSeq2Seq2.resume(path=args.output_model_path, 
                             input_alphabet_str=train_ds.input_mapper.src_alphabet_str, 
                             output_alphabet_str=train_ds.output_mapper.src_alphabet_str,
                             hidden_sizes=args.hidden_sizes, 
@@ -392,3 +392,5 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
         valid_loss, valid_acc = net.validate_one2one_epoch(valid_ds, criterion=ctc_loss, batch_size=args.batch_size)
         print(f"Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_acc:.4f}")
         net.save(args.output_model_path)
+
+

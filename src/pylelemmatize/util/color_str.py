@@ -1,7 +1,7 @@
 from typing import List, Optional, IO, Tuple, Union
 import numpy as np
 from .banded_editdistance import banded_edit_path
-
+from ..abstract_mapper import fast_str_to_numpy
 
 def print_err(txt: str ="Hello", correct: Optional[List[bool]]=None, confidence: Optional[List[float]]=None, file: Optional[IO[str]]=None) -> str:
     """

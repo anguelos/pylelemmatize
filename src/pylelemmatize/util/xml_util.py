@@ -1,321 +1,247 @@
 from pathlib import Path
 import re
 import sys
-from typing import Iterator, List, Literal, Optional, Tuple, Union
+from typing import Dict, Generator, Iterator, List, Literal, Optional, Set, Tuple, Union, IO, Union
 from lxml import etree
+from abc import ABC, abstractmethod
+import unicodedata
+
+from tqdm import tqdm
 
 
-class XMTextExtractor:
-    @staticmethod
-    def parse_nodes(node, met_mandory: bool, mandatory_paranets: List[str], ignored_children: List[str]) -> Iterator[Tuple[str, str]]:
-        met_mandory = met_mandory or (mandatory_paranets is not None and node.tag in mandatory_paranets)
-        if met_mandory:
-            yield(node.text, node)
-        for child in node.children:
-            if child.tail and met_mandory:
-                yield(child.tail, child)
-            if child.tag not in ignored_children:
-                yield from XMTextExtractor.parse_nodes(child, met_mandory, mandatory_paranets, ignored_children)
+def extract_text_from_htr_xml(htrxml_path: str, chop_first_words: int = 0, chop_last_words: int = 0) -> str:
+    def chop_words(text: str) -> str:  # BAD data might need to reject some words from start/end
+        if chop_first_words == 0 and chop_last_words == 0:
+            return text
+        words = text.split(" ")
+        if chop_first_words + chop_last_words >= len(words):
+            return ""
+        return " ".join(words[chop_first_words: len(words) - chop_last_words])
+
+    xml_str = open(htrxml_path, "r").read()
+    if re.search(r'<\s*alto\b', xml_str, re.I):
+        ns = {"alto": "http://www.loc.gov/standards/alto/ns-v4#"}
+        root = etree.fromstring(xml_str.encode("utf-8"))
+        lines = []
+        for textline in root.xpath(".//alto:TextLine", namespaces=ns):
+            words = textline.xpath(".//alto:String/@CONTENT", namespaces=ns)
+            line_text = chop_words(" ".join(words))
+            lines.append(line_text)
+        return "\n".join(lines)
     
-    def __init__(self, xml_str: str, mandatory_paranets: Optional[List[str]] = None, ignored_children: Optional[List[str]] = None):
-        self.mandatory_paranets = mandatory_paranets or []
+    elif re.search(r'<\s*PcGts\b', xml_str, re.I):
+        try:
+            root = etree.fromstring(xml_str)
+        except etree.ParseError as e:
+            raise ValueError(f"Invalid XML content: {e}")
+        ns = {'ns': root.tag.split('}')[0].strip('{')}
+        lines = []
+        for text_line in root.findall(".//ns:TextLine", ns):
+            line_entries = []
+            for text_equiv in text_line.findall("ns:TextEquiv", ns):
+                unicode_el = text_equiv.find("ns:Unicode", ns)
+                if unicode_el is not None and unicode_el.text:
+                    choped_text = chop_words(unicode_el.text.strip())
+                    line_entries.append(choped_text)
+            if line_entries:
+                lines.append("\t".join(line_entries))
+        return "\n".join(lines)
+    else:
+        raise ValueError(f"File {htrxml_path} is neither ALTO nor PAGE XML.")
+
+
+def get_textlines(filepath: str, assume_txt=False, chop_first_words: int = 0, chop_last_words: int = 0, strip_empty_lines=True) -> List[str]:
+    if filepath.lower().endswith(".xml") or filepath.lower().endswith(".pagexml"):
+        res = extract_text_from_htr_xml(filepath, chop_first_words=chop_first_words, chop_last_words=chop_last_words).split("\n")
+    elif filepath.lower().endswith(".txt") or assume_txt:
+        res = open(filepath, "r").read().split("\n")
+    else:
+        raise ValueError(f"Can't open {filepath}")
+    if strip_empty_lines:
+        res = [line for line in res if len(line)]
+    res = [unicodedata.normalize("NFC", s) for s in res]
+    return res
+
+
+def load_textline_pairs(filelist1: List[str], filelist2: List[str], min_length: int = 10, chop_first_words: int = 0, chop_last_words: int = 0) -> List[Tuple[str, str]]:
+    assert len(filelist1) == len(filelist2)
+    res = []
+    for file1, file2 in zip(sorted(filelist1), sorted(filelist2)):
+        lines1 = get_textlines(file1, chop_first_words=chop_first_words, chop_last_words=chop_last_words)
+        lines2 = get_textlines(file2, chop_first_words=chop_first_words, chop_last_words=chop_last_words)
+        if len(lines1) == len(lines2):
+            for line1, line2 in zip(lines1, lines2):
+                if len(line1) >= min_length and len(line2) >= min_length:
+                    res.append((line1, line2))
+        else:
+            print(f"Unaligned {file1} {file2} with {len(lines1)} vs {len(lines2)} lines", file=sys.stderr)
+    return res
+
+
+class XMLTextlines(ABC):
+    def __init__(self, xml_data: Union[str, Path, bytes, IO]):
+        super().__init__()
+        if isinstance(xml_data, Path):
+            with open(xml_data, "rb") as f:
+                xml_bytes = f.read()
+        elif hasattr(xml_data, "read"):
+            xml_bytes = xml_data.read()
+            if isinstance(xml_bytes, str):
+                xml_bytes = xml_bytes.encode("utf-8")
+        elif isinstance(xml_data, str):
+            if Path(xml_data).is_file():
+                with open(xml_data, "rb") as f:
+                    xml_bytes = f.read()
+            else:
+                xml_bytes = xml_data.encode("utf-8")
+        elif isinstance(xml_data, bytes):
+            xml_bytes = xml_data
+        else:
+            raise ValueError("Unsupported type for xml_data")
+        self._xml_bytes = xml_bytes
+
+    @abstractmethod
+    def _parse_xml(self):
+        pass
+        # self._xml_root = etree.fromstring(self._xml_bytes, remove_blank_text=True)
+
+    @abstractmethod
+    def __getitem__(self, idx: int) -> str:
+        pass
+
+    @abstractmethod
+    def __setitem__(self, key: int, value: str):
+        pass
+
+    def __delattr__(self, name):
+        raise NotImplementedError("Deletion of attributes is not supported.")
+
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
+    def __iter__(self) -> Iterator[str]:
+        for i in range(len(self)):
+            yield self[i]
+
+    def get_xml_str(self) -> str:
+        # c14n returns bytes
+        return etree.tostring(self._xml_root, method="c14n").decode("utf-8")
+
+
+    @classmethod
+    def from_tei(cls, xml_str: str) -> 'XMLMixedTextlines':
+        raise NotImplementedError("TEI parsing not implemented yet.")
+        ignored_children=["{http://www.tei-c.org/ns/1.0}teiHeader",
+                          "{http://www.tei-c.org/ns/1.0}sourceDoc",
+                          ]
+        return XMLMixedTextlines(xml_str, mandatory_paranets = ['teiHeader', 'text'], ignored_children= ignored_children)
+    
+    @classmethod
+    def from_pagexml(cls, xml_str: str) -> 'XMLMixedTextlines':
+        ignored_children=["{http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15}Metadata",
+                          ]
+        return XMLMixedTextlines(xml_str, mandatory_parents = ['PcGts', 'Page'], ignored_children= ignored_children)
+    
+    @classmethod
+    def from_alto(cls, xml_str: str) -> 'XMLAltoTextlines':
+        return XMLAltoTextlines(xml_str)
+
+
+class XMLMixedTextlines(XMLTextlines):
+    @staticmethod
+    def parse_attributes(node, missing_mandatory: bool, mandatory_parents: List[str], ignored_children: List[str]) -> Iterator[Tuple[str, etree._Element]]:
+        missing_mandatory = missing_mandatory and (mandatory_parents is not None and node.tag not in mandatory_parents)
+        text = node.text
+        if text is None:
+            text = ""
+        else:
+            if text.strip() == "":
+                text = ""
+        if not missing_mandatory and text != "":
+            yield(text, node)
+        for child in list(node):
+            if child.tail and not missing_mandatory:
+                ctext = child.tail
+                if ctext is None:
+                    ctext = ""
+                if ctext.strip() != "":
+                    yield(ctext, child)
+            if child.tag not in ignored_children:
+                yield from XMLMixedTextlines.parse_attributes(child, missing_mandatory, mandatory_parents, ignored_children)
+
+    def __init__(self, xml_str: str, mandatory_parents: Optional[List[str]] = None, ignored_children: Optional[List[str]] = None):
+        super().__init__(xml_str)
+        self.mandatory_parents = mandatory_parents or []
         self.ignored_children = ignored_children or []
         self.idx_to_txt_node = {}
-        self.parse_doc(xml_str)
+        self._parse_xml()
     
-    def parse_doc(self, xml_str: str):
-        self.root = etree.fromstring(xml_str)
-        txt_nodes = list(XMTextExtractor.parse_nodes(self.root, False, mandatory_paranets =self.mandatory_paranets, ignored_children = self.ignored_children))
+    def _parse_xml(self):
+        self._xml_root = etree.fromstring(self._xml_bytes)
+        txt_nodes = list(XMLMixedTextlines.parse_attributes(self._xml_root, False, mandatory_parents = self.mandatory_parents, ignored_children = self.ignored_children))
         self.idx_to_txt_node = {i: (txt, node) for i, (txt, node) in enumerate(txt_nodes) if txt is not None}
     
     def __getitem__(self, idx: int) -> str:
-        return self.idx_to_txt_node[idx]
+        text, node = self.idx_to_txt_node[idx]
+        return text
 
     def __setitem__(self, key: int, value: str):
         n = self.idx_to_txt_node[key][1]
         n.text = value
         self.idx_to_txt_node[key] = (value, n)
-
-
-    @classmethod
-    def from_tei(cls, xml_str: str, ignored_children: Optional[List[str]] = None):
-        return cls(xml_str, mandatory_paranets = ['teiHeader', 'text'], ignored_children= ignored_children)
     
-    @classmethod
-    def from_pagexml(cls, xml_str: str, ignored_children: Optional[List[str]] = None):
-        return cls(xml_str, mandatory_paranets = ['PcGts', 'Page'], ignored_children= ignored_children)
+    def __len__(self) -> int:
+        return len(self.idx_to_txt_node)
+
+
+class XMLAltoTextlines(XMLTextlines):
+    def __init__(self, xml_data: Union[str, Path, bytes, IO]):
+        super().__init__(xml_data)
+        self._parse_xml()
     
-    @classmethod
-    def from_altoxml(cls, xml_str: str, ignored_children: Optional[List[str]] = None):
-        return cls(xml_str, mandatory_paranets = ['alto'], ignored_children= ignored_children)
+    def _parse_xml(self):
+        self._xml_root = etree.fromstring(self._xml_bytes)
+        self.text_elements = [el for el in self._xml_root.findall(".//{http://www.loc.gov/standards/alto/ns-v4#}String") if el.get("CONTENT") is not None]
+        self.text_elements = [el for el in self.text_elements if el.get("CONTENT").strip() != ""]
+
+    def __getitem__(self, idx: int) -> str:
+        print(f"Getting item at index {idx}", file=sys.stderr)
+        return self.text_elements[idx].get("CONTENT")
     
+    def __setitem__(self, key: int, value: str):
+        self.text_elements[key].set("CONTENT", value)
 
-class XMLTextIterator:
-    """
-    Iterate over an XML string as (text, xml) pairs such that:
-        ''.join(text + xml for text, xml in XMLTextIterator(s, ...)) == s
-
-    Modes
-    -----
-    - attributes_as_text=False (default): each tag is a single XML chunk.
-      Example:
-        s = '<xml> with some text <tag param1="AA" param2="BB">some more <smalltag/> text</tag></xml>'
-        list(XMLTextIterator(s, attributes_as_text=False)) ->
-          [
-            ('', '<xml>'),
-            (' with some text ', '<tag param1="AA" param2="BB">'),
-            ('some more ', '<smalltag/>'),
-            (' text', '</tag></xml>')
-          ]
-
-    - attributes_as_text=True: attribute *values* are surfaced as `text` items,
-      while the surrounding tag syntax (including names, =, spaces, quotes, and >)
-      stays on the `xml` side in between those values.
-      Example (same s):
-        [
-          ('', '<xml>'),
-          (' with some text ', '<tag param1="'),
-          ('AA', '" param2="'),
-          ('BB', '">'),
-          ('some more ', '<smalltag/>'),
-          (' text', '</tag></xml>')
-        ]
-
-    Notes
-    -----
-    * This is a lightweight tokenizer, not a validating XML parser.
-    * It preserves the original bytes/characters (attribute order, spacing, quotes).
-    * It treats comments (<!-- -->), CDATA (<![CDATA[ ]]>), DOCTYPE, and processing
-      instructions (<? ?>) as indivisible tag-like chunks (never split attributes).
-    """
-
-    # Matches things we must treat as single “tag-like” chunks:
-    _comment_start = "<!--"
-    _cdata_start = "<![CDATA["
-    _doctype_start = "<!DOCTYPE"
-    _pi_start = "<?"
-
-    def __init__(self, xml: str, attributes_as_text: bool = False):
-        self.xml = xml
-        self.attributes_as_text = attributes_as_text
-
-    def __iter__(self) -> Iterator[Tuple[str, str]]:
-        s = self.xml
-        n = len(s)
-        i = 0
-        pending_text = []
-
-        def flush_pair(xml_chunk: str):
-            nonlocal pending_text
-            text_str = ''.join(pending_text)
-            pending_text = []
-            return (text_str, xml_chunk)
-
-        while i < n:
-            if s[i] != '<':
-                # Accumulate text until next '<' or end
-                j = s.find('<', i)
-                if j == -1:
-                    pending_text.append(s[i:])
-                    i = n
-                    break
-                pending_text.append(s[i:j])
-                i = j
-                continue
-
-            # Handle special sections (treat as indivisible)
-            if s.startswith(self._comment_start, i):
-                j = s.find("-->", i + 4)
-                end = n if j == -1 else j + 3
-                yield flush_pair(s[i:end])
-                i = end
-                continue
-
-            if s.startswith(self._cdata_start, i):
-                j = s.find("]]>", i + 9)
-                end = n if j == -1 else j + 3
-                yield flush_pair(s[i:end])
-                i = end
-                continue
-
-            if s.startswith(self._doctype_start, i) or s.startswith(self._pi_start, i):
-                # Find the next '>' that isn't inside quotes
-                end = self._scan_tag_end(s, i)
-                yield flush_pair(s[i:end])
-                i = end
-                continue
-
-            # Regular tag (start, empty, or end tag). Grab full tag first.
-            end = self._scan_tag_end(s, i)
-            tag = s[i:end]
-
-            # Closing tags and empty tags have no attribute values to split.
-            is_closing = tag.startswith("</")
-            if is_closing or (not self.attributes_as_text):
-                yield flush_pair(tag)
-                i = end
-                continue
-
-            # If self-closing or start tag: optionally split attribute *values* out.
-            if self.attributes_as_text and not is_closing:
-                # Build alternating [xml, text, xml, text, ..., xml] pieces for this tag
-                pieces = self._split_attribute_values_as_pieces(tag)
-
-                # Now emit as (text, xml) pairs:
-                # first pair uses pending_text + pieces[0] (xml)
-                yield flush_pair(pieces[0])
-                # subsequent pairs pair pieces[1] (text) with pieces[2] (xml), etc.
-                for k in range(1, len(pieces), 2):
-                    text_seg = pieces[k]
-                    xml_seg = pieces[k + 1] if k + 1 < len(pieces) else ""
-                    # here pending_text is empty by construction
-                    yield (text_seg, xml_seg)
-
-                i = end
-                continue
-
-        # If there’s trailing text with no following tag, pair it with empty xml
-        if pending_text:
-            yield (''.join(pending_text), "")
-
-    @staticmethod
-    def _scan_tag_end(s: str, start: int) -> int:
-        """
-        Starting at '<', find the index just after the matching '>' while
-        respecting quoted strings.
-        """
-        assert s[start] == '<'
-        i = start + 1
-        n = len(s)
-        quote = None
-        while i < n:
-            c = s[i]
-            if quote:
-                if c == quote:
-                    quote = None
-            else:
-                if c == '"' or c == "'":
-                    quote = c
-                elif c == '>':
-                    return i + 1
-            i += 1
-        return n  # fallback (malformed: no closing '>')
-
-    @staticmethod
-    def _split_attribute_values_as_pieces(tag: str):
-        """
-        Return a list of alternating pieces starting with XML:
-          [xml_before_first_value, value1_text, xml_between, value2_text, xml_after, ...]
-        Only considers quoted attribute values inside a tag that starts with '<' and
-        is not a closing tag.
-        """
-        pieces = []
-        i = 0
-        n = len(tag)
-
-        # If it's a closing tag, just return as one piece.
-        if tag.startswith("</"):
-            return [tag]
-
-        # Scan for quoted attribute values. We only treat content inside quotes as “text”.
-        while i < n:
-            if tag[i] == '"':
-                # not expected at start unless malformed; treat as normal quoted value
-                pass
-            if tag[i] == "'":
-                pass
-
-            # Find next opening quote that is part of an attribute assignment.
-            # We simply search for next quote and accept it as opening; then find its mate.
-            open_pos = XMLTextIterator._find_next_quote(tag, i)
-            if open_pos == -1:
-                # No more values; append remainder as xml
-                pieces.append(tag[i:])
-                break
-
-            # Emit xml up to and including the opening quote
-            pieces.append(tag[i:open_pos + 1])
-
-            # Find matching closing quote of the same kind
-            q = tag[open_pos]
-            close_pos = tag.find(q, open_pos + 1)
-            if close_pos == -1:
-                # Malformed: no closing quote; take rest as text then no trailing xml
-                pieces.append(tag[open_pos + 1:])
-                break
-
-            # Emit the value (text segment)
-            pieces.append(tag[open_pos + 1:close_pos])
-
-            # Continue after the closing quote
-            i = close_pos
-            # The next loop iteration will append further xml/value alternations
-        # Ensure we end on an XML piece (append empty if needed)
-        if len(pieces) % 2 == 0:
-            pieces.append("")
-        return pieces
-
-    @staticmethod
-    def _find_next_quote(s: str, start: int) -> int:
-        """
-        Find the next quote character (single or double) from 'start'.
-        We don't try to validate that it's after '=', because we only
-        care about preserving exact bytes and splitting on quoted regions.
-        """
-        dq = s.find('"', start)
-        sq = s.find("'", start)
-        if dq == -1:
-            return sq
-        if sq == -1:
-            return dq
-        return min(dq, sq)
+    def __len__(self) -> int:
+        return len(self.text_elements)
 
 
+def fast_extract_text_from_xml(xml_string: str, concatenate: bool = True) -> Union[str, List[str]]:
+    # Regular expression to find text within tags
+    # This regex avoids capturing empty spaces between tags and ensures capturing text
+    text_parts = re.findall(r'>\s*([^<>]+?)\s*<', xml_string)
+    if concatenate:
+        return ' '.join(text_parts)
+    else:
+        return text_parts
 
-class TextExtractor():
-    def __init__(self, input_path: Union[str, Path], output_path: Union[None, str, Path], write_mode: Literal['rewrite','w', 'a'] = 'w', create_output_dirs=False):
-        if input_path == "stdin":
-            self.input_f = sys.stdin
-        elif Path(input_path).is_file():
-            self.input_f = open(str(input_path), 'r', encoding='utf-8')
+
+def generate_corpus(filenames: Union[Set[str], List[str]], strip_xml: bool = True, treat_all_file_as_xml: bool = False, verbose: bool = False) -> Generator[str, None, None]:
+    if verbose:
+        progress = tqdm(filenames)
+    else:
+        progress = filenames
+
+    if strip_xml:
+        def dexmlfy(xml_string: str) -> str:
+            return fast_extract_text_from_xml(xml_string)
+    else:
+        def dexmlfy(xml_string: str) -> str:
+            return xml_string
+
+    for file in progress:
+        data = open(file).read()
+        if treat_all_file_as_xml or file.lower().endswith(".xml"):
+            yield dexmlfy(data)
         else:
-            raise IOError(f"Invalid input path: {input_path}")
-
-        if output_path is None:
-            self.output_f = None
-        elif output_path == "stdout":
-            self.output_f = sys.stdout
-        elif output_path == "stderr":
-            self.output_f = sys.stderr
-        elif write_mode== 'w' and not Path(output_path).is_file(): # write mode does not allow overwrite
-            try:
-                self.output_f = open(str(output_path), "w", encoding='utf-8')
-            except FileNotFoundError:
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                self.output_f = open(str(output_path), "w", encoding='utf-8')
-        elif write_mode == 'a':  # append mode allows creating file if not exists
-            self.output_f = open(str(output_path), "a", encoding='utf-8')
-        elif write_mode== 'rewrite': # write mode does not allow overwrite
-            try:
-                self.output_f = open(str(output_path), "w", encoding='utf-8')
-            except FileNotFoundError:
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                self.output_f = open(str(output_path), "w", encoding='utf-8')
-        else:
-            self.output_f = None
-
-
-
-# --- quick demo ---
-if __name__ == "__main__":
-    s = '<xml> with some text <tag param1="AA" param2="BB">some more <smalltag/> text</tag></xml>'
-
-    print("attributes_as_text=False")
-    out0 = list(XMLTextIterator(s, attributes_as_text=False))
-    print(out0)
-    print("reconstructed ok:", ''.join(t + x for t, x in out0) == s)
-
-    print("\nattributes_as_text=True")
-    out1 = list(XMLTextIterator(s, attributes_as_text=True))
-    print(out1)
-    print("reconstructed ok:", ''.join(t + x for t, x in out1) == s)
+            yield data

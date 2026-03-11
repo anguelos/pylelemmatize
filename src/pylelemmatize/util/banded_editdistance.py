@@ -131,7 +131,10 @@ def banded_edit_path(a: np.ndarray, b: np.ndarray, band: int, add_null_initial: 
     is_ins = paths[1:, 0] - paths[: -1, 0] == 0
     is_del = paths[1:, 1] - paths[: -1, 1] == 0
     is_diag = ~(is_del | is_ins)
-    agree =  (a[paths[1:, 0]] == b[paths[1:, 1]])
+    try:
+        agree =  (a[paths[1:, 0]] == b[paths[1:, 1]])
+    except IndexError:
+        raise RuntimeError("Index error during agreement check — likely a bug in path construction. a: {}, b: {}, paths: {}".format(a, b, paths))
     is_sub = is_diag & ~agree
     is_match = is_diag & agree
     cost_1 = is_sub | is_del | is_ins
@@ -143,6 +146,12 @@ def compute_cer(seq1: Union[np.ndarray, str], seq2: Union[np.ndarray, str], band
         seq1 = fast_str_to_numpy(seq1)
     if isinstance(seq2, str):
         seq2 = fast_str_to_numpy(seq2)
+    if seq1.ndim != 1 or seq2.ndim != 1:
+        raise ValueError("Input sequences must be 1D arrays or strings.")
+    if seq1.shape[0] == 0:
+        return float(len(seq2)) if not normalize else 1.0
+    if seq2.shape[0] == 0:
+        return float(len(seq1)) if not normalize else 1.0
     if band<1:
         band = max(seq1.size, seq2.size)
     _, costs, (_, _, _, _) = banded_edit_path(seq1, seq2, band=band)
