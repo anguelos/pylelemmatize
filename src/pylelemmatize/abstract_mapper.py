@@ -185,7 +185,7 @@ class AbstractLemmatizer(ABC):
     def alphabet_tsv(self) -> str:
         title = " #\tUnicode Number\tUnicode x10\tUnicode x16\tPython String"
         lines = [title]
-        for n, c in enumerate(self.unknown_chr + self.dst_alphabet_str):
+        for n, c in enumerate(self.dst_alphabet_str):
             lines.append(f"{n}\t{unicodedata.name(c)}\t{ord(c)}\t{ord(c):x}\t{repr(c)}")
         return "\n".join(lines)
     
@@ -211,7 +211,7 @@ class AbstractLemmatizer(ABC):
     
     def __len__(self) -> int:
         """Return the size of the destination alphabet."""
-        return len(self.dst_alphabet_str) + 1
+        return len(self.dst_alphabet_str)
 
     def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         # adding all characters atleast once to make np.unique count zero counts
