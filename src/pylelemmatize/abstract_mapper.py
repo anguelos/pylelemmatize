@@ -211,7 +211,11 @@ class AbstractLemmatizer(ABC):
     
     def __len__(self) -> int:
         """Return the size of the destination alphabet."""
-        return len(self.dst_alphabet_str) + 1
+        # TODO(angelos): This seems to be a patch around some incosistency, In some cases the unknown character is included in the dst_alphabet_str and in some cases it is not. This should be fixed in a more consistent way.
+        if self.unknown_chr not in self.dst_alphabet_str:
+            return len(self.dst_alphabet_str) + 1
+        else:
+            return len(self.dst_alphabet_str) 
 
     def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         # adding all characters atleast once to make np.unique count zero counts
@@ -234,18 +238,6 @@ class AbstractLemmatizer(ABC):
         np_text = fast_str_to_numpy(text)
         mapped_np_text = self.__npint2int[np_text]
         return np.mean(np_text != mapped_np_text)
-
-    # def get_unigram(self, text: str) -> Tuple[np.ndarray, np.ndarray, Dict[int, str]]:
-    #     # adding all characters atleast once to make np.unique count zero counts
-    #     src_alphabet_str, _, __np_chrord2dense, __np_dense2chrord = AbstractLemmatizer.__create_mappers(self.mapping_dict, self.unknown_chr)
-    #     np_text = fast_str_to_numpy(self.unknown_chr + src_alphabet_str + text)
-    #     mapped_np_text = __np_chrord2dense[np_text]
-    #     values, counts = np.unique(mapped_np_text, return_counts=True)
-    #     counts = counts - 1  # removing the counts of the added characters
-    #     labels = np.array([c for c in fast_numpy_to_str(__np_dense2chrord[values])], dtype=np.str_)
-    #     labels[0] = self.unknown_chr  # Ensure the unknown character is included
-    #     print("\n\nLABELS:\n", labels, "\n\n\n")
-    #     return values, counts, labels
 
 
 class GenericLemmatizer(AbstractLemmatizer):
@@ -334,9 +326,9 @@ class GenericLemmatizer(AbstractLemmatizer):
 
     @property
     def dst_alphabet_str(self) -> str:
-        res = ''.join(sorted(set(self.mapping_dict.values())))
-        if self.unknown_chr not in res:
-            res += self.unknown_chr
+        res = set(self.mapping_dict.values()) - set(self.unknown_chr)
+        res = ''.join(sorted(res))
+        res = self.unknown_chr + res
         return res
 
     def __repr__(self):

@@ -23,3 +23,7 @@ sphinx-copybutton
 sphinxcontrib-mermaid
 linkify-it-py
 sphinx_rtd_theme
+
+# For development
+build
+twine

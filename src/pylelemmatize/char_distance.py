@@ -11,7 +11,7 @@ from unidecode import unidecode
 def char_similarity(a: str, b: str, symmetric: bool = True) -> float:
     """Compute similarity score between two characters based on multiple heuristics."""
     score = 0.0
-
+    
     # Basic identity
     if a == b:
         return 1.0
