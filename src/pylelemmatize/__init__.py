@@ -11,8 +11,6 @@ from .util import print_err, print_colored_text, print_error_types, compute_cer,
 import sys
 from .philogeny import main_char_similarity_tree
 from .version import version
-from .substitution_augmenter import CharConfusionMatrix
-from .phoc import PHOC
 
 __version__ = version
 
@@ -52,11 +50,13 @@ __all__ = ["information_measurements", "llemmatizer", "llemmatize", "AbstractLem
            "char_similarity", "fast_cer", "fast_numpy_to_str", "fast_str_to_numpy", "load_textline_pairs",
            "Charsets", "charsets",
            "print_err", "XMLTextlines", "XMLMixedTextlines", 
-           "CharConfusionMatrix", "__version__", "PHOC", "extract_text_from_htr_xml", "extract_transcription_from_page_xml", "main_char_similarity_tree"]
+           "__version__", "extract_text_from_htr_xml", "extract_transcription_from_page_xml", "main_char_similarity_tree"]
 
-if "torch" in sys.modules or "sphinx" in sys.modules:  # to allow doc generation without torch
+# torch is optional: the mappers (LemmatizerBMP, ...) need only numpy; these classes need torch. find_spec finds torch
+# without importing it, so an error inside these modules is raised rather than taken for a missing torch.
+if importlib.util.find_spec("torch") is not None or "sphinx" in sys.modules:  # to allow doc generation without torch
+    from .substitution_augmenter import CharConfusionMatrix
+    from .phoc import PHOC
     from .mapper_ds import Seq2SeqDs
     from .demapper_lstm import DemapperLSTM
-    __all__.extend(["Seq2SeqDs", "DemapperLSTM"])
-else:
-    print("Warning: Torch is not loaded. Seq2SeqDs will not be available.", file=sys.stderr)
+    __all__.extend(["CharConfusionMatrix", "PHOC", "Seq2SeqDs", "DemapperLSTM"])

@@ -349,40 +349,42 @@ def main_train_many_to_more_ctc(argv=sys.argv, **kwargs: Dict[str, Any]):  # pra
     from pylelemmatize.mapper_ds import Seq2SeqDs
     from pylelemmatize.fast_mapper import LemmatizerBMP
     from pylelemmatize.demapper_lstm_ctc import DemapperLSTMCTC
-    from pylelemmatize.util.util import load_textline_pairs
+    from pylelemmatize.util import load_textline_pairs
     import glob
     import tqdm
     #from .charsets import allbmp_encoding_alphabet_strings
     import pylelemmatize
     import numpy as np
     import random
-    p = {
-        "inputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/abreviated/B*.xml")),
-        "outputs": set(glob.glob("/home/anguelos/data/corpora/maria_pia/unabreviated/B*.xml")),
-        "input_alphabet": pylelemmatize.charsets.mes3a,
-        "output_alphabet": pylelemmatize.charsets.mufibmp,
-        "hidden_sizes": "384,384,384",
-        "dataset_cache_path": "./tmp/many_to_more_ds.pt",
-        "allow_start_insertions": False,
-        "band": 70,
-        "verbose": False,
-        "dropouts": "0.1,0.1,0.1",
-        "pseudo_batch_size": 1,
-        "nb_epochs": 100,
-        "num_workers": 8,
-        "seed": 42,
-        "output_model_path": "./tmp/models/many_to_more_ctc.pt",
-        "train_test_split": 0.8,
-        "max_trainset_sz" : -1,  # -1 means no limit
-        "lr": 0.001,
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "debug_sample": 3,
-        "resume_best_weights": False,
-        "max_unalignment": -1,
-        "batch_size": 1,
-        "prefer_replication": False,
-    }
-    args, _ = fargv.fargv(p)
+    
+    @fargv.deep_dataclass
+    class Config(fargv.FargvAutoConfig):
+        inputs: list = list(sorted(glob.glob("/home/anguelos/data/corpora/maria_pia/abreviated/B*.xml")))
+        outputs: list = list(sorted(glob.glob("/home/anguelos/data/corpora/maria_pia/unabreviated/B*.xml")))
+        input_alphabet: str =  pylelemmatize.charsets.mes3a
+        output_alphabet: str = pylelemmatize.charsets.mufibmp
+        hidden_sizes: str = "384,384,384"
+        dataset_cache_path: str = "./tmp/many_to_more_ds.pt"
+        allow_start_insertions: bool = False
+        band: int = 70
+        dropouts: str = "0.1,0.1,0.1"
+        pseudo_batch_size: int = 1
+        nb_epochs: int = 100
+        num_workers: int = 8
+        seed: int = 42
+        output_model_path: str = "./tmp/models/many_to_more_ctc.pt"
+        train_test_split: float = 0.8
+        max_trainset_sz : int = -1  # -1 means no limit
+        lr: float = 0.001
+        device: str = "cuda" if torch.cuda.is_available() else "cpu"
+        debug_sample: int = 3
+        resume_best_weights: bool = False
+        max_unalignment: int = -1
+        batch_size: int = 1
+        prefer_replication: bool = False
+    
+    args, _ = fargv.parse(Config)
+    args.verbose = args.verbosity > 0
     args.hidden_sizes = [int(x) for x in args.hidden_sizes.split(",")]
     args.dropouts = [float(x) for x in args.dropouts.split(",")]
     torch.manual_seed(args.seed)

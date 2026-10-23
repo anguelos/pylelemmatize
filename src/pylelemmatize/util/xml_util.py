@@ -31,7 +31,7 @@ def extract_text_from_htr_xml(htrxml_path: str, chop_first_words: int = 0, chop_
     
     elif re.search(r'<\s*PcGts\b', xml_str, re.I):
         try:
-            root = etree.fromstring(xml_str)
+            root = etree.fromstring(xml_str.encode("utf-8"))
         except etree.ParseError as e:
             raise ValueError(f"Invalid XML content: {e}")
         ns = {'ns': root.tag.split('}')[0].strip('{')}
@@ -64,7 +64,17 @@ def get_textlines(filepath: str, assume_txt=False, chop_first_words: int = 0, ch
 
 
 def load_textline_pairs(filelist1: List[str], filelist2: List[str], min_length: int = 10, chop_first_words: int = 0, chop_last_words: int = 0) -> List[Tuple[str, str]]:
-    assert len(filelist1) == len(filelist2)
+    if len(filelist1) == len(filelist2):
+        print(f"Loading {len(filelist1)} file pairs", file=sys.stderr)
+    else:
+        print(f"Error: file lists have different lengths: {len(filelist1)} vs {len(filelist2)}", file=sys.stderr)
+        extra_inputs = set(filelist2) - set(filelist1)
+        extra_outputs = set(filelist1) - set(filelist2)
+        if extra_inputs:
+            print(f"Extra inputs: {extra_inputs}", file=sys.stderr)
+        if extra_outputs:
+            print(f"Extra outputs: {extra_outputs}", file=sys.stderr)
+        raise ValueError("File lists must have the same length")
     res = []
     for file1, file2 in zip(sorted(filelist1), sorted(filelist2)):
         lines1 = get_textlines(file1, chop_first_words=chop_first_words, chop_last_words=chop_last_words)
