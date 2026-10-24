@@ -1,3 +1,4 @@
+import importlib.util
 from typing import Dict, Literal, Optional
 from . information_counting import information_measurements
 from .char_distance import char_similarity
